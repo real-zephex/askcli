@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"sync"
 )
 
 func telegramBotKeyCheck() (string, error) {
@@ -17,7 +18,7 @@ func telegramBotKeyCheck() (string, error) {
 	return key, nil
 }
 
-func backgroundManager(db *sql.DB, ctx context.Context) {
+func telegramManager(db *sql.DB, ctx context.Context) {
 	fmt.Println("Welcome to background agent. We will not initalize the agent to function in background.")
 
 	// get gemini key
@@ -40,4 +41,22 @@ func backgroundManager(db *sql.DB, ctx context.Context) {
 	}
 
 	botConfig(ctx, db)
+}
+
+func StartBackground(db *sql.DB, ctx context.Context) {
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		telegramManager(db, ctx)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		startServer(db, ctx)	
+	}()
+
+	wg.Wait()
 }

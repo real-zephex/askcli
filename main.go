@@ -108,9 +108,19 @@ var systemFile = flag.String(
 	"path to a file containing system prompt text",
 )
 var background = flag.Bool(
-	"background", 
+	"background",
 	false,
 	"whether to function as a full blown background agent or not",
+)
+var connect = flag.String(
+	"connect",
+	"",
+	"connect to remote ask server (e.g. http://host:3000)",
+)
+var serverKey = flag.String(
+	"server-key",
+	"",
+	"API key to authenticate with the remote ask server (overrides ASKCLI_CLIENT_KEY/ASKCLI_SERVER_KEY env)",
 )
 
 // simple, checks for gemini api key
@@ -161,7 +171,7 @@ func main() {
 	}
 
 	if *background {
-		backgroundManager(db, ctx)
+		StartBackground(db, ctx)
 		os.Exit(0)
 	}
 
@@ -191,7 +201,12 @@ func main() {
 	e, _ := checkForEnv()
 
 	if *chat || (len(args) == 1 && args[0] == "chat") {
-		startREPL(ctx, db, e, resolveModels(*model), resolveReasoningLevel(*reasoning))
+		if *connect != "" {
+			apiKey := getServerAPIKey()
+			startREPLRemote(ctx, db, *connect, apiKey, resolveModels(*model), resolveReasoningLevel(*reasoning))
+		} else {
+			startREPL(ctx, db, e, resolveModels(*model), resolveReasoningLevel(*reasoning))
+		}
 		os.Exit(0)
 	}
 
@@ -225,7 +240,19 @@ func main() {
 	resolvedReasoning := resolveReasoningLevel(*reasoning)
 
 	var res string
-	if *stream {
+	if *connect != "" {
+		apiKey := getServerAPIKey()
+		printThinking()
+		remoteRes, err := postToRemoteAsk(ctx, *connect, apiKey, query, resolvedModel, resolvedReasoning)
+		clearThinking()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "remote request error: %v\n", err)
+			os.Exit(1)
+		}
+		res = remoteRes
+		printFinalRenderLabel()
+		render(res)
+	} else if *stream {
 		printStreamingLabel()
 		preview := newMarkdownStreamPreview()
 		res = runStream(
