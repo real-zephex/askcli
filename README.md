@@ -240,6 +240,21 @@ Enable with `--agent`. The AI can call these tools automatically (with approval,
 
 - No approval needed
 
+**`text_to_speech_file`** – Generate voice notes (MP3 audio)
+
+- Converts plain text into an MP3file using ElevenLabs
+- Output can be sent over Telegram with `send_document_over_telegram`
+- Requires `ELEVEN_LABS_API_KEY`
+
+**`send_document_over_telegram`** – Send files over Telegram
+
+- Sends any file (documents, MP3s, voice notes, etc.) directly to Telegram
+- Works seamlessly with voice note generation for AI-to-user voice delivery
+
+**`send_image_over_telegram`** – Send images over Telegram
+
+- Sends image files directly to Telegram chat
+
 ## Telegram Integration
 
 Run `ask` as a Telegram bot. Chat with the AI directly in Telegram with slash commands for config.
@@ -259,7 +274,13 @@ Run `ask` as a Telegram bot. Chat with the AI directly in Telegram with slash co
 - `/model <name>` – switch AI model
 - `/reasoning <level>` – adjust reasoning (HIGH/MEDIUM/LOW/MINIMAL)
 
-Just send regular messages—they'll be processed by the AI and responses saved locally in SQLite. Perfect for keeping an AI assistant in your pocket.
+**Voice & File Features:**
+
+- **Send voice notes:** The agent can generate voice notes (MP3 audio) from text and send them back to you over Telegram using the `text_to_speech_file` and `send_document_over_telegram` tools.
+- **Receive voice notes:** You can send voice notes to the bot, and it will transcribe them into text and understand the content in responses.
+- **Send files:** The agent can send documents, images, and other files directly to your Telegram chat.
+
+Just send regular messages, voice notes, or images—they'll be processed by the AI and responses saved locally in SQLite. Perfect for keeping an AI assistant in your pocket that responds in voice too.
 
 ## Shell Completions
 
