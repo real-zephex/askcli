@@ -41,11 +41,14 @@ The program reads these environment variables at runtime:
 | Variable                       | Required for             | Notes                                                        |
 | ------------------------------ | ------------------------ | ------------------------------------------------------------ |
 | `GEMINI_API_KEY`               | Core CLI and agent mode  | Required to talk to the Gemini API.                          |
+| `ASKCLI_SERVER_KEY`            | Remote server mode       | Server-side: API key that clients must provide to authenticate. Client-side: used as fallback if `ASKCLI_CLIENT_KEY` not set. |
+| `ASKCLI_CLIENT_KEY`            | Remote client mode       | Client-side: API key to authenticate with a remote server (alternative to `ASKCLI_SERVER_KEY`). |
 | `TELEGRAM_BOT_TOKEN`           | Telegram background mode | Required when running `ask --background=true`.               |
 | `AGENT_MAIL_API_KEY`           | AgentMail tool           | Required for the `mail` tool.                                |
 | `INBOX_NAME`                   | AgentMail tool           | The inbox name used by the `mail` tool.                      |
 | `ELEVEN_LABS_API_KEY`          | TTS tool                 | Required for `text_to_speech_file`.                          |
 | `DISPLAY` or `WAYLAND_DISPLAY` | Clipboard tool           | Needed when using clipboard features in a graphical session. |
+| `PORT`                         | Server mode              | Port to run the server on (default: 3000).                   |
 
 If you only use the local CLI, `GEMINI_API_KEY` is the only required variable.
 
@@ -124,7 +127,57 @@ Dial up the thinking time (higher = slower, more accurate):
 --model <alias>     Pick a model
 --reason <level>    Set reasoning level
 --clear             Nuke chat history on startup
+--connect <url>     Connect to a remote ask server (e.g. http://host:3000)
+--server-key <key>  API key for remote server authentication (overrides env vars)
+--background        Run as background Telegram bot
 ```
+
+## Remote Server
+
+Run `ask` as a server that other clients can connect to. The server processes requests and returns responses via HTTP.
+
+**Server setup:**
+
+1. Set the API key that clients will need to provide:
+   ```bash
+   export ASKCLI_SERVER_KEY="your-secret-key-here"
+   export GEMINI_API_KEY="your-gemini-key"
+   ```
+
+2. Start the server (runs on port 3000 by default, or set `PORT` env):
+   ```bash
+   ask --background=true
+   # or directly (without Telegram):
+   go run . 2>/dev/null &
+   # The server listens on /ask (authenticated) and /health (no auth)
+   ```
+
+**Client usage:**
+
+Connect to the remote server from another machine or terminal using `--connect`:
+
+- **One-shot query:**
+  ```bash
+  ask --connect http://server:3000 --server-key YOUR_KEY "your question"
+  ```
+
+- **Interactive chat:**
+  ```bash
+  ask --connect http://server:3000 --server-key YOUR_KEY --chat
+  ```
+
+- **Using env vars (on client):**
+  ```bash
+  export ASKCLI_CLIENT_KEY="your-secret-key-here"
+  ask --connect http://server:3000 --chat
+  ```
+
+**Notes:**
+
+- The `--server-key` flag overrides environment variables (`ASKCLI_CLIENT_KEY`, `ASKCLI_SERVER_KEY`).
+- Server validates the `x-askcli-api-key` header on each request.
+- The server shares the same SQLite database and vector memory across all clients.
+- Remote clients do not support streaming `--connect` (server-side only for now, YOLO mode is set to `true` in server letting agent perform any tool calls.).
 
 ## Chat Mode (REPL)
 

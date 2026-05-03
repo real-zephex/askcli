@@ -40,7 +40,7 @@ type FileResult struct {
 
 type GroqResponse struct {
 	Text string `json:"text"`
-	xGroq XGroq `json:"x_groq"`
+	XGroq XGroq `json:"x_groq"`
 }
 
 type XGroq struct {
