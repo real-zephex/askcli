@@ -107,6 +107,11 @@ var systemFile = flag.String(
 	"",
 	"path to a file containing system prompt text",
 )
+var background = flag.Bool(
+	"background", 
+	false,
+	"whether to function as a full blown background agent or not",
+)
 
 // simple, checks for gemini api key
 func checkForEnv() (string, bool) {
@@ -152,6 +157,11 @@ func main() {
 	if *clr {
 		clearDatabase(db)
 		fmt.Println("Removed all the rows from the database. Start afresh!")
+		os.Exit(0)
+	}
+
+	if *background {
+		backgroundManager(db, ctx)
 		os.Exit(0)
 	}
 
@@ -240,6 +250,6 @@ func main() {
 	saveMessage(db, "user", query)
 	saveMessage(db, "assistant", res)
 
-	scheduleRememberTurn(query, res)
-	waitForRememberTasks("Finishing memory sync before exit")
+	// scheduleRememberTurn(query, res)
+	// waitForRememberTasks("Finishing memory sync before exit")
 }

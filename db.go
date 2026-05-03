@@ -3,9 +3,10 @@ package main
 import (
 	"database/sql"
 	"log"
-	_ "modernc.org/sqlite"
 	"os"
 	"path/filepath"
+
+	_ "modernc.org/sqlite"
 )
 
 type Message struct {
@@ -33,6 +34,11 @@ func initDB() *sql.DB {
 		)
 	`)
 	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Initialize lists tables
+	if err := initListsTables(db); err != nil {
 		log.Fatal(err)
 	}
 

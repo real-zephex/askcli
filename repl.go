@@ -73,7 +73,7 @@ func startREPL(ctx context.Context, db *sql.DB, key string, model string, reason
 		var res string
 		if state.agent {
 			printThinking()
-			res = runAgentTurn(ctx, db, key, input, state.model, state.reasoning, state.yolo)
+			res = runAgentTurn(ctx, db, key, input, state.model, state.reasoning, state.yolo, 0)
 			clearThinking()
 			printFinalRenderLabel()
 			render(res)
@@ -104,7 +104,7 @@ func startREPL(ctx context.Context, db *sql.DB, key string, model string, reason
 		saveMessage(db, "user", input)
 		saveMessage(db, "assistant", res)
 
-//		scheduleRememberTurn(input, res)
+		//		scheduleRememberTurn(input, res)
 	}
 }
 
