@@ -15,6 +15,7 @@ import (
 	bot "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/russross/blackfriday/v2"
+	"google.golang.org/genai"
 )
 
 var telegramBot *bot.BotAPI
@@ -91,10 +92,7 @@ func splitTelegramMessage(text string, maxLen int) []string {
 
 	chunks := make([]string, 0, (len(runes)+maxLen-1)/maxLen)
 	for start := 0; start < len(runes); start += maxLen {
-		end := start + maxLen
-		if end > len(runes) {
-			end = len(runes)
-		}
+		end := min(start+maxLen, len(runes))
 		chunks = append(chunks, string(runes[start:end]))
 	}
 
@@ -186,7 +184,6 @@ func sendMessage(text string, message *bot.Message) {
 	}
 }
 
-
 func mdToTelegramHTML(md string) string {
 	// Render Markdown to HTML (unsafe)
 	unsafe := blackfriday.Run([]byte(md))
@@ -238,68 +235,82 @@ func commandsHandler(message *bot.Message) {
 	}
 }
 
+// function to get the file url from telegram (2 hops)
+func getTelegramFileUrl(botKey, fileId string) (string, error) {
+	resp, err := http.Get(
+		fmt.Sprintf(TELEGRAM_FILE_URL+"/bot%s/getFile?file_id=%s", botKey, fileId),
+	)
+	if err != nil {
+		return "", fmt.Errorf("error querying Telegram for file: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var telegramResponse GetFileResponse
+	if err := json.NewDecoder(resp.Body).Decode(&telegramResponse); err != nil {
+		return "", fmt.Errorf("error parsing Telegram getFile response: %v", err)
+	}
+
+	return fmt.Sprintf("https://api.telegram.org/file/bot%s/%s", botKey, telegramResponse.Result.FilePath), nil
+}
+
+// function to get the file
+func fetchTelegramFile(botKey, fileId string) ([]byte, error) {
+	fileUrl, err := getTelegramFileUrl(botKey, fileId)
+	if err != nil {
+		return nil, err
+	}
+
+	fileResp, err := http.Get(fileUrl)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching file from Telegram: %v", err)
+	}
+	defer fileResp.Body.Close()
+
+	fileBytes, err := io.ReadAll(fileResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading file bytes: %v", err)
+	}
+
+	return fileBytes, nil
+}
+
+// transcribe shit
 func handleAudio(fileId string) (string, error) {
 	botKey, err := telegramBotKeyCheck()
 	if err != nil {
-		return "", fmt.Errorf("An error occured while fetching API key for telegram.")
+		return "", fmt.Errorf("error fetching Telegram API key")
 	}
 	groqApiKey, err := getGroqApiKey()
 	if err != nil {
 		return "", err
 	}
 
-	resp, err := http.Get(
-		fmt.Sprintf(TELEGRAM_FILE_URL+"/bot%s/getFile?file_id=%s", botKey, fileId),
-	)
+	audioBytes, err := fetchTelegramFile(botKey, fileId)
 	if err != nil {
-		return "", fmt.Errorf("An error occured while querying Telegram for the file: %v", err)
-	}
-	defer resp.Body.Close()
-
-	var telegramResponse GetFileResponse
-	fileResponseParsingError := json.NewDecoder(resp.Body).Decode(&telegramResponse)
-	if fileResponseParsingError != nil {
-		return "", fmt.Errorf("An error occured while parsing response from telegram: %v", err)
-	}
-
-	fileUrl := fmt.Sprintf("https://api.telegram.org/file/bot%s/%s", botKey, telegramResponse.Result.FilePath)
-	audioResp, err := http.Get(fileUrl)
-	if err != nil {
-		return "", fmt.Errorf("An error occured while fetching file from telegram: %v", err)
-	}
-	defer audioResp.Body.Close()
-
-	audioBytes, err := io.ReadAll(audioResp.Body)
-	if err != nil {
-		return "", fmt.Errorf("error converting response to bytes: %v", err)
+		return "", err
 	}
 
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
-
 	part, _ := w.CreateFormFile("file", "voice.ogg")
 	part.Write(audioBytes)
 	w.WriteField("model", "whisper-large-v3-turbo")
 	w.Close()
 
-	// Send to Groq
 	req, _ := http.NewRequest("POST", "https://api.groq.com/openai/v1/audio/transcriptions", &buf)
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", groqApiKey))
 	req.Header.Set("Content-Type", w.FormDataContentType())
 
-	resp, audioErr := http.DefaultClient.Do(req)
-	if audioErr != nil {
-		return "", fmt.Errorf("There was an error receiving response from Groq: %v", audioErr)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("error receiving response from Groq: %v", err)
 	}
 	defer resp.Body.Close()
 
 	var groqResponse GroqResponse
-	groqResponseParsingError := json.NewDecoder(resp.Body).Decode(&groqResponse)
-	if groqResponseParsingError != nil {
-		return "", fmt.Errorf("There was an issue parsing the response from Groq")
+	if err := json.NewDecoder(resp.Body).Decode(&groqResponse); err != nil {
+		return "", fmt.Errorf("error parsing Groq response")
 	}
-
-	fmt.Println(groqResponse)
 
 	return groqResponse.Text, nil
 }
@@ -308,18 +319,26 @@ func botConfig(ctx context.Context, db *sql.DB) {
 	// some configs i copied from https://go-telegram-bot-api.dev
 	updateConfig := bot.NewUpdate(0)
 	updateConfig.Timeout = 30
-
 	updates := telegramBot.GetUpdatesChan(updateConfig)
+	botkey, err := telegramBotKeyCheck()
+	if err != nil {
+		// handle it somehow
+	}
 
 	fmt.Println("Alright! Going to listen for events from telegram!")
 	for update := range updates {
 		message := update.Message
-		audio := message.Voice
-
 		if message == nil {
 			continue
 		}
 
+		voice := message.Voice
+		audio := message.Audio
+		image := message.Photo
+		document := message.Document
+		var prepared []MultiModalMessage
+
+		// commands handler - in telegram commands start with /
 		if message.IsCommand() {
 			commandsHandler(message)
 			continue
@@ -330,9 +349,100 @@ func botConfig(ctx context.Context, db *sql.DB) {
 		// my user id
 		id := update.Message.Chat.ID
 
-		if audio != nil {
-			fmt.Println("Audio detected. Support coming soon!")
-			text, err := handleAudio(audio.FileID)
+		extractFile := func(msg *bot.Message) (string, string, error) {
+			if msg == nil {
+				return "", "", nil
+			}
+
+			if len(msg.Photo) > 0 {
+				lastEntry := msg.Photo[len(msg.Photo)-1]
+				fileLink, err := getTelegramFileUrl(botkey, lastEntry.FileID)
+				return "image/jpg", fileLink, err
+			}
+			if msg.Document != nil {
+				fileLink, err := getTelegramFileUrl(botkey, msg.Document.FileID)
+				return msg.Document.MimeType, fileLink, err
+			}
+			if msg.Audio != nil {
+				fileLink, err := getTelegramFileUrl(botkey, msg.Audio.FileID)
+				return msg.Audio.MimeType, fileLink, err
+			}
+
+			return "", "", nil
+		}
+
+		if image != nil || document != nil || audio != nil {
+			var fileId string
+			var mimetype string
+
+			if image != nil {
+				imageArraySize := len(image)
+				lastEntry := image[imageArraySize-1]
+				fileId = lastEntry.FileID
+				mimetype = "image/jpg"
+			} else if document != nil {
+				fileId = document.FileID
+				mimetype = document.MimeType
+			} else if audio != nil {
+				fileId = audio.FileID
+				mimetype = audio.MimeType
+			}
+
+			fileLink, err := getTelegramFileUrl(botkey, fileId)
+			if err != nil {
+				sendMessage("There was an error receiving media URL from Telegram", message)
+			}
+			fmt.Println("Final media URL: ", fileLink)
+
+			caption := message.Caption
+			if caption != "" {
+				receivedMessage = caption
+			} else {
+				sendMessage("Please provide some instructions or a message with the media.", message)
+				continue
+			}
+
+			prepared = append(prepared, MultiModalMessage{
+				Mimetype: mimetype,
+				File:     fileLink,
+			})
+		}
+
+		reply := message.ReplyToMessage
+		if reply != nil {
+			replyText := strings.TrimSpace(reply.Text)
+			if replyText == "" {
+				replyText = strings.TrimSpace(reply.Caption)
+			}
+
+			replyMime, replyFileLink, err := extractFile(reply)
+			if err != nil {
+				sendMessage("There was an error receiving replied media URL from Telegram", message)
+			} else {
+				if strings.TrimSpace(replyFileLink) != "" {
+					prepared = append(prepared, MultiModalMessage{
+						Mimetype: replyMime,
+						File:     replyFileLink,
+					})
+					if replyText != "" {
+						replyText += "\n"
+					}
+					replyText += fmt.Sprintf("[Replied media URL: %s]", replyFileLink)
+				}
+			}
+
+			if replyText != "" {
+				if receivedMessage != "" {
+					receivedMessage = fmt.Sprintf("Reply context:\n%s\n\nUser message:\n%s", replyText, receivedMessage)
+				} else {
+					receivedMessage = fmt.Sprintf("Reply context:\n%s", replyText)
+				}
+			}
+		}
+
+		if voice != nil {
+			fmt.Println("Audio file detected. Running it through transcription pipeline")
+			text, err := handleAudio(voice.FileID)
 			if err != nil {
 				sendMessage(err.Error(), message)
 				continue
@@ -345,7 +455,15 @@ func botConfig(ctx context.Context, db *sql.DB) {
 			continue
 		}
 
-		res := runAgentTurn(ctx, db, geminiKey, receivedMessage, tgModel, tgReasoning, true, id)
+		multiModalContents := make([]*genai.Content, 0, len(prepared))
+		for _, p := range prepared {
+			content := p.ToGenAIImageContent()
+			if content != nil {
+				multiModalContents = append(multiModalContents, content)
+			}
+		}
+
+		res := runAgentTurn(ctx, db, geminiKey, receivedMessage, tgModel, tgReasoning, true, id, multiModalContents)
 
 		sendMessage(res, message)
 

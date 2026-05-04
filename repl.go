@@ -73,7 +73,7 @@ func startREPL(ctx context.Context, db *sql.DB, key string, model string, reason
 		var res string
 		if state.agent {
 			printThinking()
-			res = runAgentTurn(ctx, db, key, input, state.model, state.reasoning, state.yolo, 0)
+			res = runAgentTurn(ctx, db, key, input, state.model, state.reasoning, state.yolo, 0, nil)
 			clearThinking()
 			printFinalRenderLabel()
 			render(res)

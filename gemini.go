@@ -14,12 +14,35 @@ type GeminiMessage struct {
 	Text string
 }
 
+type MultiModalMessage struct {
+	Mimetype string
+	File     string
+}
+
 // takes those gemini message and converts them to gemini api compatible format
 func (m GeminiMessage) ToGenAIContent() *genai.Content {
 	return &genai.Content{
 		Role: m.Role,
 		Parts: []*genai.Part{
 			{Text: m.Text},
+		},
+	}
+}
+
+func (stuff MultiModalMessage) ToGenAIImageContent() *genai.Content {
+	if strings.TrimSpace(stuff.Mimetype) == "" || strings.TrimSpace(stuff.File) == "" {
+		return nil
+	}
+
+	return &genai.Content{
+		Role: genai.RoleUser,
+		Parts: []*genai.Part{
+			{
+				FileData: &genai.FileData{
+					MIMEType: stuff.Mimetype,
+					FileURI:  stuff.File,
+				},
+			},
 		},
 	}
 }
