@@ -408,6 +408,16 @@ func botConfig(ctx context.Context, db *sql.DB) {
 			})
 		}
 
+		if voice != nil {
+			fmt.Println("Audio file detected. Running it through transcription pipeline")
+			text, err := handleAudio(voice.FileID)
+			if err != nil {
+				sendMessage(err.Error(), message)
+				continue
+			}
+			receivedMessage = text
+		}
+
 		reply := message.ReplyToMessage
 		if reply != nil {
 			replyText := strings.TrimSpace(reply.Text)
@@ -438,16 +448,6 @@ func botConfig(ctx context.Context, db *sql.DB) {
 					receivedMessage = fmt.Sprintf("Reply context:\n%s", replyText)
 				}
 			}
-		}
-
-		if voice != nil {
-			fmt.Println("Audio file detected. Running it through transcription pipeline")
-			text, err := handleAudio(voice.FileID)
-			if err != nil {
-				sendMessage(err.Error(), message)
-				continue
-			}
-			receivedMessage = text
 		}
 
 		// do not proceed if there is no text
