@@ -331,9 +331,10 @@ Run `ask` as a Telegram bot. Chat with the AI directly in Telegram with slash co
 
 - **Send voice notes:** The agent can generate voice notes (MP3 audio) from text and send them back to you over Telegram using the `text_to_speech_file` and `send_document_over_telegram` tools.
 - **Receive voice notes:** You can send voice notes to the bot, and it will transcribe them into text and understand the content in responses.
-- **Send files:** The agent can send documents, images, and other files directly to your Telegram chat.
+- **Send images and documents:** The agent can send images and document files directly to your Telegram chat with full support for multimodal content.
+- **Reply context:** When you reply to any message (text, image, voice note, or document), the full context of the replied-to message is properly passed to the agent, allowing it to understand and respond with proper context awareness.
 
-Just send regular messages, voice notes, or images—they'll be processed by the AI and responses saved locally in SQLite. Perfect for keeping an AI assistant in your pocket that responds in voice too.
+Just send regular messages, voice notes, images, or documents—they'll be processed by the AI and responses saved locally in SQLite. Perfect for keeping an AI assistant in your pocket that responds in voice, images, and files too.
 
 ## Shell Completions
 

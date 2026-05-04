@@ -323,6 +323,8 @@ func botConfig(ctx context.Context, db *sql.DB) {
 	botkey, err := telegramBotKeyCheck()
 	if err != nil {
 		// handle it somehow
+		fmt.Println("Telegram Bot Key was not found. Please set it and try again.")
+		os.Exit(1)
 	}
 
 	fmt.Println("Alright! Going to listen for events from telegram!")
