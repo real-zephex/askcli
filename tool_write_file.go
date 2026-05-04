@@ -63,6 +63,7 @@ func parseWriteFileRequest(args map[string]any) (writeFileRequest, error) {
 	}, nil
 }
 
+// INFO: path, oldstr, newstr, reason
 func executeWriteFile(req writeFileRequest) writeFileResult {
 	resolvedPath := req.Path
 	if !filepath.IsAbs(req.Path) {
@@ -76,6 +77,7 @@ func executeWriteFile(req writeFileRequest) writeFileResult {
 		resolvedPath = filepath.Join(cwd, req.Path)
 	}
 
+	// try to read the file from resolved path
 	data, err := os.ReadFile(resolvedPath)
 	if err != nil {
 		return writeFileResult{
@@ -85,8 +87,10 @@ func executeWriteFile(req writeFileRequest) writeFileResult {
 	}
 
 	content := string(data)
+	// check whether the oldstr exists in the file or not (the content that we want to replace)
 	matchCount := strings.Count(content, req.OldStr)
 
+	// if not then we have no match
 	if matchCount == 0 {
 		return writeFileResult{
 			Request:      req,
@@ -95,6 +99,7 @@ func executeWriteFile(req writeFileRequest) writeFileResult {
 		}
 	}
 
+	// if more than 1 match, then ask model to provide a more specific match
 	if matchCount > 1 {
 		return writeFileResult{
 			Request:      req,
@@ -103,8 +108,9 @@ func executeWriteFile(req writeFileRequest) writeFileResult {
 		}
 	}
 
+	// do the magic basically replacing that's all
 	newContent := strings.Replace(content, req.OldStr, req.NewStr, 1)
-
+	// and then write the new string to the file
 	err = os.WriteFile(resolvedPath, []byte(newContent), 0644)
 	if err != nil {
 		return writeFileResult{
@@ -158,11 +164,11 @@ func generateDiff(oldStr, newStr string) string {
 	newLines := strings.Split(newStr, "\n")
 
 	for _, line := range oldLines {
-		diff.WriteString(fmt.Sprintf("- %s\n", line))
+		fmt.Fprintf(&diff, "- %s\n", line)
 	}
 
 	for _, line := range newLines {
-		diff.WriteString(fmt.Sprintf("+ %s\n", line))
+		fmt.Fprintf(&diff, "+ %s\n", line)
 	}
 
 	return diff.String()

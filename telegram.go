@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	bot "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/microcosm-cc/bluemonday"
+	"github.com/russross/blackfriday/v2"
 )
 
 var telegramBot *bot.BotAPI
@@ -39,8 +41,8 @@ type FileResult struct {
 }
 
 type GroqResponse struct {
-	Text string `json:"text"`
-	XGroq XGroq `json:"x_groq"`
+	Text  string `json:"text"`
+	XGroq XGroq  `json:"x_groq"`
 }
 
 type XGroq struct {
@@ -166,7 +168,11 @@ func sendMessage(text string, message *bot.Message) {
 	chunks := splitTelegramMessage(text, telegramMaxMessageLen)
 
 	for i, chunk := range chunks {
-		msg := bot.NewMessage(chatId, chunk)
+		// Convert Markdown to sanitized HTML for Telegram
+		html := mdToTelegramHTML(chunk)
+
+		msg := bot.NewMessage(chatId, html)
+		msg.ParseMode = "HTML"
 		if i == 0 {
 			msg.ReplyToMessageID = messageID
 		}
@@ -178,6 +184,26 @@ func sendMessage(text string, message *bot.Message) {
 			return
 		}
 	}
+}
+
+
+func mdToTelegramHTML(md string) string {
+	// Render Markdown to HTML (unsafe)
+	unsafe := blackfriday.Run([]byte(md))
+
+	// only Telegram-safe tags
+	p := bluemonday.NewPolicy()
+	// basic formatting
+	p.AllowElements("b", "strong", "i", "em", "u")
+	// code blocks and inline code
+	p.AllowElements("pre", "code")
+	// links (allow href attribute)
+	p.AllowElements("a")
+	p.AllowAttrs("href").OnElements("a")
+
+	// Sanitize the rendered HTML
+	safe := p.SanitizeBytes(unsafe)
+	return string(safe)
 }
 
 func commandsHandler(message *bot.Message) {
