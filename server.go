@@ -15,6 +15,7 @@ import (
 var sCTX context.Context
 var sDB *sql.DB
 var sLocalKey string
+var sCacheSettings CacheSettings
 
 type AskRequest struct {
 	Message   string `json:"message"`
@@ -95,7 +96,7 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 	}
 
 	//INFO: 0 is TELEGRAM CHAT ID. This will not support TELEGRAM RELATED FUNCTIONS so we need to exclude them.
-	res := runAgentTurn(sCTX, sDB, sGeminiKey, req.Message, sModel, sReasoning, true, 0, nil)
+	res := runAgentTurn(sCTX, sDB, sGeminiKey, req.Message, sModel, sReasoning, sCacheSettings, true, 0, nil)
 
 	//TODO Save user message and history to local database
 	w.Header().Set("Content-Type", "application/json")
@@ -107,10 +108,11 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("ok"))
 }
 
-func startServer(db *sql.DB, ctx context.Context) {
+func startServer(db *sql.DB, ctx context.Context, cacheSettings CacheSettings) {
 	mux := http.NewServeMux()
 	sCTX = ctx
 	sDB = db
+	sCacheSettings = cacheSettings
 
 	localKey, err := getLocalServerKey()
 	if err != nil {

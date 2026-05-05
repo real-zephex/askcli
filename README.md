@@ -124,6 +124,8 @@ Dial up the thinking time (higher = slower, more accurate):
 --yolo              Auto-approve all actions
 --stream            Stream markdown as it renders (default: on)
 --system <file>     Load custom system prompt
+--cache             Enable explicit Gemini context caching (system prompt + tools)
+--cache-ttl <dur>   Explicit cache TTL (e.g. 30m, 2h). 0 uses API default
 --model <alias>     Pick a model
 --reason <level>    Set reasoning level
 --clear             Nuke chat history on startup

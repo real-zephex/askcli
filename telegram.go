@@ -22,6 +22,7 @@ var telegramBot *bot.BotAPI
 var geminiKey string
 var tgModel string = "gemini-3.1-flash-lite-preview"
 var tgReasoning string = "MINIMAL"
+var tgCacheSettings CacheSettings
 
 const (
 	TELEGRAM_FILE_URL string = "https://api.telegram.org"
@@ -465,7 +466,7 @@ func botConfig(ctx context.Context, db *sql.DB) {
 			}
 		}
 
-		res := runAgentTurn(ctx, db, geminiKey, receivedMessage, tgModel, tgReasoning, true, id, multiModalContents)
+		res := runAgentTurn(ctx, db, geminiKey, receivedMessage, tgModel, tgReasoning, tgCacheSettings, true, id, multiModalContents)
 
 		sendMessage(res, message)
 

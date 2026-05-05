@@ -350,7 +350,7 @@ func buildAgentGenerationConfig(reasoning string) *genai.GenerateContentConfig {
 	return cfg
 }
 
-func runAgentTurn(ctx context.Context, db *sql.DB, key string, query string, model string, reasoning string, autoApprove bool, telegramChatID int64, multiModalContents []*genai.Content) string {
+func runAgentTurn(ctx context.Context, db *sql.DB, key string, query string, model string, reasoning string, cacheSettings CacheSettings, autoApprove bool, telegramChatID int64, multiModalContents []*genai.Content) string {
 	messages := getHistory(db, 20)
 	// since we have crud tools for managing memories, model can interact with them directly and injecting memory into the prompt will only clutter it
 	//	queryWithMemory := injectMemoryContext(ctx, query)
@@ -363,6 +363,7 @@ func runAgentTurn(ctx context.Context, db *sql.DB, key string, query string, mod
 
 	client := newGeminiClient(ctx, key)
 	config := buildAgentGenerationConfig(reasoning)
+	applyExplicitCache(ctx, client, model, config, cacheSettings)
 
 	for range maxAgentToolRounds {
 		result, err := client.Models.GenerateContent(ctx, model, contents, config)

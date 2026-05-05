@@ -100,16 +100,17 @@ func getServerAPIKey() string {
 	return ""
 }
 
-func startREPLRemote(ctx context.Context, db *sql.DB, server string, apiKey string, model string, reasoning string) {
+func startREPLRemote(ctx context.Context, db *sql.DB, server string, apiKey string, model string, reasoning string, cacheSettings CacheSettings) {
 	state := &replState{
 		model:     model,
 		reasoning: reasoning,
 		stream:    *stream,
 		agent:     *agent,
 		yolo:      *yolo,
+		cache:     cacheSettings,
 	}
 
-	printREPLHeader(state.model, state.reasoning, state.stream, state.agent, state.yolo)
+	printREPLHeader(state.model, state.reasoning, state.stream, state.agent, state.yolo, state.cache.Enabled)
 
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 1024), 1024*1024)

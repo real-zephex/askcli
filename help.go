@@ -57,6 +57,8 @@ FLAGS:
   --agent       Enable agent mode in chat (model can request shell commands)
   --yolo        Auto-approve shell commands in agent mode (dangerous)
   --system      Path to a file containing system prompt text
+  --cache       Enable explicit Gemini context caching (system prompt + tools)
+  --cache-ttl   TTL for explicit cache (e.g. 30m, 2h). 0 uses API default
 
 CHAT TIP:
   Use /help inside chat mode to see all slash commands.

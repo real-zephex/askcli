@@ -33,7 +33,7 @@ var (
 
 var thinkingActive bool
 
-func printREPLHeader(model string, reasoning string, stream bool, agent bool, yolo bool) {
+func printREPLHeader(model string, reasoning string, stream bool, agent bool, yolo bool, cacheEnabled bool) {
 	fmt.Println(headerStyle.Render("ask • interactive mode"))
 	fmt.Println(subtleStyle.Render("commands: /help for slash commands"))
 	fmt.Println(subtleStyle.Render(
@@ -41,7 +41,8 @@ func printREPLHeader(model string, reasoning string, stream bool, agent bool, yo
 			" • reasoning: " + reasoning +
 			" • stream: " + fmt.Sprintf("%t", stream) +
 			" • agent: " + fmt.Sprintf("%t", agent) +
-			" • yolo: " + fmt.Sprintf("%t", yolo),
+			" • yolo: " + fmt.Sprintf("%t", yolo) +
+			" • cache: " + fmt.Sprintf("%t", cacheEnabled),
 	))
 	fmt.Println()
 }

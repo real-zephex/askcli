@@ -231,12 +231,13 @@ func logThoughts(parts []*genai.Part) {
 }
 
 // the OG function, this is used when stream is set to off. implemented this function myself
-func run(ctx context.Context, db *sql.DB, key string, query string, model string, reasoning string) string {
+func run(ctx context.Context, db *sql.DB, key string, query string, model string, reasoning string, cacheSettings CacheSettings) string {
 	// by default last 20 messages are sent as context
 	messages := getHistory(db, 20)
 
 	client := newGeminiClient(ctx, key)
 	config := buildGenerationConfig(reasoning)
+	applyExplicitCache(ctx, client, model, config, cacheSettings)
 	contents := historyToGenAIContents(messages, query)
 
 	result, err := client.Models.GenerateContent(ctx, model, contents, config)
@@ -259,6 +260,7 @@ func runStream(
 	query string,
 	model string,
 	reasoning string,
+	cacheSettings CacheSettings,
 	onTextChunk func(string),
 	onComplete func(string),
 ) string {
@@ -266,6 +268,7 @@ func runStream(
 
 	client := newGeminiClient(ctx, key)
 	config := buildGenerationConfig(reasoning)
+	applyExplicitCache(ctx, client, model, config, cacheSettings)
 	contents := historyToGenAIContents(messages, query)
 
 	var answer strings.Builder

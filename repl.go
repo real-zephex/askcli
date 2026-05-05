@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type replState struct {
@@ -16,18 +17,20 @@ type replState struct {
 	stream    bool
 	agent     bool
 	yolo      bool
+	cache     CacheSettings
 }
 
-func startREPL(ctx context.Context, db *sql.DB, key string, model string, reasoning string) {
+func startREPL(ctx context.Context, db *sql.DB, key string, model string, reasoning string, cacheSettings CacheSettings) {
 	state := &replState{
 		model:     model,
 		reasoning: reasoning,
 		stream:    *stream,
 		agent:     *agent,
 		yolo:      *yolo,
+		cache:     cacheSettings,
 	}
 
-	printREPLHeader(state.model, state.reasoning, state.stream, state.agent, state.yolo)
+	printREPLHeader(state.model, state.reasoning, state.stream, state.agent, state.yolo, state.cache.Enabled)
 
 	scanner := bufio.NewScanner(os.Stdin)
 	// allow longer pasted prompts
@@ -73,7 +76,7 @@ func startREPL(ctx context.Context, db *sql.DB, key string, model string, reason
 		var res string
 		if state.agent {
 			printThinking()
-			res = runAgentTurn(ctx, db, key, input, state.model, state.reasoning, state.yolo, 0, nil)
+			res = runAgentTurn(ctx, db, key, input, state.model, state.reasoning, state.cache, state.yolo, 0, nil)
 			clearThinking()
 			printFinalRenderLabel()
 			render(res)
@@ -88,12 +91,13 @@ func startREPL(ctx context.Context, db *sql.DB, key string, model string, reason
 				input,
 				state.model,
 				state.reasoning,
+				state.cache,
 				preview.onChunk,
 				preview.onComplete,
 			)
 		} else {
 			printThinking()
-			res = run(ctx, db, key, input, state.model, state.reasoning)
+			res = run(ctx, db, key, input, state.model, state.reasoning, state.cache)
 			clearThinking()
 
 			printFinalRenderLabel()
@@ -160,6 +164,28 @@ func handleSlashCommand(input string, db *sql.DB, state *replState) (handled boo
 		}
 		state.stream = on
 		fmt.Printf("Streaming: %t\n", state.stream)
+		return true, false
+	case "/cache":
+		on, ok := parseOnOffArg(args)
+		if !ok {
+			fmt.Println("Usage: /cache on|off")
+			return true, false
+		}
+		state.cache.Enabled = on
+		fmt.Printf("Explicit caching: %t\n", state.cache.Enabled)
+		return true, false
+	case "/cache-ttl":
+		if len(args) != 1 {
+			fmt.Println("Usage: /cache-ttl <duration>")
+			return true, false
+		}
+		d, err := time.ParseDuration(args[0])
+		if err != nil || d < 0 {
+			fmt.Println("Invalid duration. Examples: 30m, 2h, 10s")
+			return true, false
+		}
+		state.cache.TTL = d
+		fmt.Printf("Explicit cache TTL: %s\n", state.cache.TTL)
 		return true, false
 	case "/model":
 		if len(args) == 0 {
@@ -268,6 +294,8 @@ func printSlashHelp() {
 	fmt.Println("  /agent on|off        Toggle shell agent mode")
 	fmt.Println("  /yolo on|off         Toggle auto-approval in agent mode")
 	fmt.Println("  /stream on|off       Toggle streaming output")
+	fmt.Println("  /cache on|off        Toggle explicit context caching")
+	fmt.Println("  /cache-ttl <dur>     Set explicit cache TTL (e.g. 30m, 2h)")
 	fmt.Println("  /model [name|alias]  Get/set model (free|cheap|exp or full model name)")
 	fmt.Println("  /reason [level]      Get/set reasoning (HIGH|MED|LOW|MIN)")
 	fmt.Println("  /pwd                 Print current working directory")
@@ -285,6 +313,10 @@ func printStatus(state *replState) {
 	fmt.Printf("  stream:    %t\n", state.stream)
 	fmt.Printf("  agent:     %t\n", state.agent)
 	fmt.Printf("  yolo:      %t\n", state.yolo)
+	fmt.Printf("  cache:     %t\n", state.cache.Enabled)
+	if state.cache.TTL > 0 {
+		fmt.Printf("  cache ttl: %s\n", state.cache.TTL)
+	}
 	fmt.Printf("  cwd:       %s\n", wd)
 }
 

@@ -122,6 +122,16 @@ var serverKey = flag.String(
 	"",
 	"API key to authenticate with the remote ask server (overrides ASKCLI_CLIENT_KEY/ASKCLI_SERVER_KEY env)",
 )
+var cacheEnabled = flag.Bool(
+	"cache",
+	false,
+	"enable explicit Gemini context caching for system prompt and tools",
+)
+var cacheTTL = flag.Duration(
+	"cache-ttl",
+	0,
+	"explicit cache TTL (e.g. 30m, 2h). 0 uses API default",
+)
 
 // simple, checks for gemini api key
 func checkForEnv() (string, bool) {
@@ -170,8 +180,13 @@ func main() {
 		os.Exit(0)
 	}
 
+	cacheSettings := CacheSettings{
+		Enabled: *cacheEnabled,
+		TTL:     *cacheTTL,
+	}
+
 	if *background {
-		StartBackground(db, ctx)
+		StartBackground(db, ctx, cacheSettings)
 		os.Exit(0)
 	}
 
@@ -203,9 +218,9 @@ func main() {
 	if *chat || (len(args) == 1 && args[0] == "chat") {
 		if *connect != "" {
 			apiKey := getServerAPIKey()
-			startREPLRemote(ctx, db, *connect, apiKey, resolveModels(*model), resolveReasoningLevel(*reasoning))
+			startREPLRemote(ctx, db, *connect, apiKey, resolveModels(*model), resolveReasoningLevel(*reasoning), cacheSettings)
 		} else {
-			startREPL(ctx, db, e, resolveModels(*model), resolveReasoningLevel(*reasoning))
+			startREPL(ctx, db, e, resolveModels(*model), resolveReasoningLevel(*reasoning), cacheSettings)
 		}
 		os.Exit(0)
 	}
@@ -262,12 +277,13 @@ func main() {
 			query,
 			resolvedModel,
 			resolvedReasoning,
+			cacheSettings,
 			preview.onChunk,
 			preview.onComplete,
 		)
 	} else {
 		printThinking()
-		res = run(ctx, db, e, query, resolvedModel, resolvedReasoning)
+		res = run(ctx, db, e, query, resolvedModel, resolvedReasoning, cacheSettings)
 		clearThinking()
 		printFinalRenderLabel()
 		render(res)

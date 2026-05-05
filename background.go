@@ -18,8 +18,9 @@ func telegramBotKeyCheck() (string, error) {
 	return key, nil
 }
 
-func telegramManager(db *sql.DB, ctx context.Context) {
+func telegramManager(db *sql.DB, ctx context.Context, cacheSettings CacheSettings) {
 	fmt.Println("Welcome to background agent. We will not initalize the agent to function in background.")
+	tgCacheSettings = cacheSettings
 
 	// get gemini key
 	gErr := setGeminiKey()
@@ -43,19 +44,19 @@ func telegramManager(db *sql.DB, ctx context.Context) {
 	botConfig(ctx, db)
 }
 
-func StartBackground(db *sql.DB, ctx context.Context) {
+func StartBackground(db *sql.DB, ctx context.Context, cacheSettings CacheSettings) {
 	var wg sync.WaitGroup
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		telegramManager(db, ctx)
+		telegramManager(db, ctx, cacheSettings)
 	}()
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		startServer(db, ctx)	
+		startServer(db, ctx, cacheSettings)
 	}()
 
 	wg.Wait()
