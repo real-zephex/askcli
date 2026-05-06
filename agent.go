@@ -368,7 +368,15 @@ func runAgentTurn(ctx context.Context, db *sql.DB, key string, query string, mod
 	for range maxAgentToolRounds {
 		result, err := client.Models.GenerateContent(ctx, model, contents, config)
 		if err != nil {
-			return fmt.Sprintf("Agent request failed: %v", err)
+			if isCachedContentNotFound(err) {
+				invalidateExplicitCache(model, config)
+				config = buildAgentGenerationConfig(reasoning)
+				applyExplicitCache(ctx, client, model, config, cacheSettings)
+				result, err = client.Models.GenerateContent(ctx, model, contents, config)
+			}
+			if err != nil {
+				return fmt.Sprintf("Agent request failed: %v", err)
+			}
 		}
 
 		if len(result.Candidates) > 0 && result.Candidates[0] != nil && result.Candidates[0].Content != nil {

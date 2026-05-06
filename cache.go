@@ -140,3 +140,18 @@ func toolConfigSignature(cfg *genai.ToolConfig) string {
 	}
 	return fmt.Sprintf("include_server_side=%t", *cfg.IncludeServerSideToolInvocations)
 }
+
+func isCachedContentNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "403") && strings.Contains(errStr, "CachedContent not found")
+}
+
+func invalidateExplicitCache(model string, config *genai.GenerateContentConfig) {
+	key := buildCacheKey(model, config)
+	cachedContentMu.Lock()
+	delete(cachedContentByKey, key)
+	cachedContentMu.Unlock()
+}

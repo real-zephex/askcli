@@ -242,7 +242,15 @@ func run(ctx context.Context, db *sql.DB, key string, query string, model string
 
 	result, err := client.Models.GenerateContent(ctx, model, contents, config)
 	if err != nil {
-		log.Fatal(err)
+		if isCachedContentNotFound(err) {
+			invalidateExplicitCache(model, config)
+			config = buildGenerationConfig(reasoning)
+			applyExplicitCache(ctx, client, model, config, cacheSettings)
+			result, err = client.Models.GenerateContent(ctx, model, contents, config)
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	if len(result.Candidates) > 0 && result.Candidates[0] != nil && result.Candidates[0].Content != nil {
@@ -274,32 +282,52 @@ func runStream(
 	var answer strings.Builder
 	var thoughts strings.Builder
 
-	for chunk, err := range client.Models.GenerateContentStream(ctx, model, contents, config) {
-		if err != nil {
-			log.Fatal(err)
-		}
+	for attempt := 0; attempt < 2; attempt++ {
+		answer.Reset()
+		thoughts.Reset()
 
-		text := chunk.Text()
-		if text != "" {
-			answer.WriteString(text)
-			if onTextChunk != nil {
-				onTextChunk(text)
+		var streamErr error
+		for chunk, err := range client.Models.GenerateContentStream(ctx, model, contents, config) {
+			if err != nil {
+				streamErr = err
+				break
 			}
-		}
 
-		for _, candidate := range chunk.Candidates {
-			if candidate == nil || candidate.Content == nil {
-				continue
+			text := chunk.Text()
+			if text != "" {
+				answer.WriteString(text)
+				if onTextChunk != nil {
+					onTextChunk(text)
+				}
 			}
-			for _, part := range candidate.Content.Parts {
-				if part == nil {
+
+			for _, candidate := range chunk.Candidates {
+				if candidate == nil || candidate.Content == nil {
 					continue
 				}
-				if part.Text != "" && part.Thought {
-					thoughts.WriteString(part.Text)
+				for _, part := range candidate.Content.Parts {
+					if part == nil {
+						continue
+					}
+					if part.Text != "" && part.Thought {
+						thoughts.WriteString(part.Text)
+					}
 				}
 			}
 		}
+
+		if streamErr == nil {
+			break
+		}
+
+		if attempt == 0 && isCachedContentNotFound(streamErr) {
+			invalidateExplicitCache(model, config)
+			config = buildGenerationConfig(reasoning)
+			applyExplicitCache(ctx, client, model, config, cacheSettings)
+			continue
+		}
+
+		log.Fatal(streamErr)
 	}
 
 	finalAnswer := answer.String()
