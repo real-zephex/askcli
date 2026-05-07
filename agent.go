@@ -242,7 +242,7 @@ func buildAgentGenerationConfig(reasoning string) *genai.GenerateContentConfig {
 			},
 			"html": map[string]any{
 				"type":        "string",
-				"description": "HTML body",
+				"description": "HTML body. You must always include this whenever sending an email. Without this, email clients won't be able to see the contents of the email.",
 			},
 			"reply_to": map[string]any{
 				"type":        "string",

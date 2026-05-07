@@ -152,8 +152,21 @@ func isCachedContentNotFound(err error) bool {
 }
 
 func invalidateExplicitCache(model string, config *genai.GenerateContentConfig) {
+	if config == nil {
+		return
+	}
+
+	cachedContentName := config.CachedContent
 	key := buildCacheKey(model, config)
+
 	cachedContentMu.Lock()
+	if cachedContentName != "" {
+		for cachedKey, cachedContent := range cachedContentByKey {
+			if cachedContent != nil && cachedContent.Name == cachedContentName {
+				delete(cachedContentByKey, cachedKey)
+			}
+		}
+	}
 	delete(cachedContentByKey, key)
 	cachedContentMu.Unlock()
 }
