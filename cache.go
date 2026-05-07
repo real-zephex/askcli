@@ -145,8 +145,10 @@ func isCachedContentNotFound(err error) bool {
 	if err == nil {
 		return false
 	}
-	errStr := err.Error()
-	return strings.Contains(errStr, "403") && strings.Contains(errStr, "CachedContent not found")
+	errStr := strings.ToLower(err.Error())
+	return strings.Contains(errStr, "cachedcontent not found") ||
+		strings.Contains(errStr, "permission_denied") ||
+		strings.Contains(errStr, "permission denied")
 }
 
 func invalidateExplicitCache(model string, config *genai.GenerateContentConfig) {
