@@ -13,6 +13,8 @@
 
 A no-nonsense CLI for talking to LLMs with actual superpowers. Chat in REPL mode or fire one-off questions. Optional agent mode lets the AI run shell commands, edit files, make HTTP calls, and manage local todos/memory—all with approval gates you control.
 
+> This project has been shifted to Codeberg and all the changes are mirrored here. 
+
 ## Features
 
 - **REPL chat** with slash commands for config on the fly
