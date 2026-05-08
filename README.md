@@ -1,7 +1,7 @@
 # ask
 
-<p align="center"><b>AI agent for your terminal. Everything stays local.</b></p>
-<p align="center">Written in Go. Runs everywhere. Full control over your data.</p>
+<p align="center"><b>AI agent for your terminal.</b></p>
+<p align="center">Written in Go. Local state stays on your machine, but model requests still go to Gemini and optional integrations use their own services.</p>
 
 <p align="center">
   <a href="./assets/demo-smooth.gif">
@@ -11,54 +11,46 @@
   <sub>Click to see full demo</sub>
 </p>
 
-A no-nonsense CLI for talking to LLMs with actual superpowers. Chat in REPL mode or fire one-off questions. Optional agent mode lets the AI run shell commands, edit files, make HTTP calls, and manage local todos/memory—all with approval gates you control.
-
-> This project has been shifted to Codeberg and all the changes are mirrored here. 
+A CLI for talking to LLMs in your terminal. Use one-shot mode for quick questions or REPL mode for interactive chat. Optional agent mode lets the AI run shell commands, edit files, make HTTP calls, manage local lists and memories, and send files over Telegram, with approval gates you control.
 
 ## Features
 
-- **REPL chat** with slash commands for config on the fly
-- **One-shot mode** for quick questions (pipes stdin too)
-- **Streaming markdown** rendering as you type
-- **Agent mode** with tool calling (shell, file ops, HTTP, clipboard, todos, memory)
-- **Approval gates** per action (bypass with `--yolo` if you're in a hurry)
+- **REPL chat** with slash commands for runtime config
+- **One-shot mode** for quick questions, including piped stdin
+- **Streaming markdown** rendering as responses arrive
+- **Agent mode** with tool calling for shell, file ops, HTTP, clipboard, lists, mail, memory, and Telegram media tools
+- **Approval gates** per risky action, with `--yolo` to auto-approve in trusted environments
 - **Chat history** persisted in SQLite
-- **Vector memory** store for long-term context (add/view/update/delete)
-- **Named lists/todos** stored locally (accessible to the agent)
+- **Vector memory** store for long-term context, with explicit CRUD tools and CLI access
+- **Named lists/todos** stored locally
 - **Shell completions** for bash/zsh/fish
-- **Custom system prompts** (load from file)
+- **Custom system prompts** loaded from a file
+- **Telegram background mode** that can process messages, voice notes, images, and documents
+- **Remote client/server mode** for connecting to a local ask server over HTTP
 
 ## Requirements
 
-Go 1.25+ and a Gemini API key. Set it in your environment:
+- Go 1.25.8+
+- `GEMINI_API_KEY` to talk to Gemini
 
-```bash
-export GEMINI_API_KEY="your_key_here"
-```
+Some features also need extra setup:
 
-## Environment Variables
-
-The program reads these environment variables at runtime:
-
-| Variable                       | Required for             | Notes                                                        |
-| ------------------------------ | ------------------------ | ------------------------------------------------------------ |
-| `GEMINI_API_KEY`               | Core CLI and agent mode  | Required to talk to the Gemini API.                          |
-| `ASKCLI_SERVER_KEY`            | Remote server mode       | Server-side: API key that clients must provide to authenticate. Client-side: used as fallback if `ASKCLI_CLIENT_KEY` not set. |
-| `ASKCLI_CLIENT_KEY`            | Remote client mode       | Client-side: API key to authenticate with a remote server (alternative to `ASKCLI_SERVER_KEY`). |
-| `TELEGRAM_BOT_TOKEN`           | Telegram background mode | Required when running `ask --background=true`.               |
-| `AGENT_MAIL_API_KEY`           | AgentMail tool           | Required for the `mail` tool.                                |
-| `INBOX_NAME`                   | AgentMail tool           | The inbox name used by the `mail` tool.                      |
-| `ELEVEN_LABS_API_KEY`          | TTS tool                 | Required for `text_to_speech_file`.                          |
-| `DISPLAY` or `WAYLAND_DISPLAY` | Clipboard tool           | Needed when using clipboard features in a graphical session. |
-| `PORT`                         | Server mode              | Port to run the server on (default: 3000).                   |
+- `ASKCLI_SERVER_KEY` for remote server auth
+- `ASKCLI_CLIENT_KEY` as a client-side fallback auth key
+- `TELEGRAM_BOT_TOKEN` for Telegram background mode
+- `GROQ_API_KEY` for Telegram voice-note transcription
+- `AGENT_MAIL_API_KEY` and `INBOX_NAME` for the `mail` tool
+- `ELEVEN_LABS_API_KEY` for `text_to_speech_file`
+- `DISPLAY` or `WAYLAND_DISPLAY`, plus `wl-paste`/`wl-copy`, for clipboard features on Linux
+- `PORT` for server mode, defaulting to `3000`
 
 If you only use the local CLI, `GEMINI_API_KEY` is the only required variable.
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/zephex/go-ask.git
-cd go-ask
+git clone <repo-url>
+cd ask
 go build -o ask
 ./ask "Your question here"
 ```
@@ -87,13 +79,13 @@ ask --chat
 ask chat
 ```
 
-**Agent mode (enable tool calling):**
+**Agent mode:**
 
 ```bash
 ask --chat --agent
 ```
 
-Auto-approve tool actions (use with caution):
+Auto-approve tool actions:
 
 ```bash
 ask --chat --agent --yolo
@@ -103,20 +95,20 @@ ask --chat --agent --yolo
 
 Quick names for common models:
 
-- `free` – `gemma-4-26b-a4b-it` (default, fast)
-- `cheap` – `gemini-3.1-flash-lite-preview` (ultra-light)
-- `exp` – `gemini-3-flash-preview` (more capable)
+- `free` – `gemma-4-26b-a4b-it` (default)
+- `cheap` – `gemini-3.1-flash-lite-preview`
+- `exp` – `gemini-3-flash-preview`
 
-Or pass any full model name.
+You can also pass any full model name.
 
 ## Reasoning Control
 
-Dial up the thinking time (higher = slower, more accurate):
+Dial up the thinking time:
 
 - `HIGH` – deep reasoning
 - `MED` / `MEDIUM` / `MID`
 - `LOW`
-- `MIN` / `MINIMAL` – fast, lightweight
+- `MIN` / `MINIMAL` – fast and lightweight
 
 ## Common Flags
 
@@ -133,28 +125,33 @@ Dial up the thinking time (higher = slower, more accurate):
 --clear             Nuke chat history on startup
 --connect <url>     Connect to a remote ask server (e.g. http://host:3000)
 --server-key <key>  API key for remote server authentication (overrides env vars)
---background        Run as background Telegram bot
+--background        Run Telegram background mode plus the local HTTP server
 ```
 
 ## Remote Server
 
-Run `ask` as a server that other clients can connect to. The server processes requests and returns responses via HTTP.
+`ask` can run as a local HTTP server that remote clients connect to.
+
+**Important:** `--background` starts both the Telegram bot and the HTTP server. There is no separate server-only flag.
 
 **Server setup:**
 
-1. Set the API key that clients will need to provide:
+1. Set the API key that clients must provide:
    ```bash
    export ASKCLI_SERVER_KEY="your-secret-key-here"
    export GEMINI_API_KEY="your-gemini-key"
+   export TELEGRAM_BOT_TOKEN="your-telegram-bot-token"
    ```
 
-2. Start the server (runs on port 3000 by default, or set `PORT` env):
+2. Start background mode:
    ```bash
    ask --background=true
-   # or directly (without Telegram):
-   go run . 2>/dev/null &
-   # The server listens on /ask (authenticated) and /health (no auth)
    ```
+
+The server exposes:
+
+- `/ask` — authenticated POST endpoint
+- `/health` — unauthenticated health check
 
 **Client usage:**
 
@@ -170,7 +167,7 @@ Connect to the remote server from another machine or terminal using `--connect`:
   ask --connect http://server:3000 --server-key YOUR_KEY --chat
   ```
 
-- **Using env vars (on client):**
+- **Using env vars on the client:**
   ```bash
   export ASKCLI_CLIENT_KEY="your-secret-key-here"
   ask --connect http://server:3000 --chat
@@ -178,14 +175,15 @@ Connect to the remote server from another machine or terminal using `--connect`:
 
 **Notes:**
 
-- The `--server-key` flag overrides environment variables (`ASKCLI_CLIENT_KEY`, `ASKCLI_SERVER_KEY`).
-- Server validates the `x-askcli-api-key` header on each request.
-- The server shares the same SQLite database and vector memory across all clients.
-- Remote clients do not support streaming `--connect` (server-side only for now, YOLO mode is set to `true` in server letting agent perform any tool calls.).
+- `--server-key` overrides `ASKCLI_CLIENT_KEY` and `ASKCLI_SERVER_KEY`.
+- The server validates the `x-askcli-api-key` header on each request.
+- The server and Telegram bot share the same SQLite database and vector memory.
+- Remote clients do not support streaming yet.
+- Remote requests currently run with server-side auto-approval enabled, so tool calls are not blocked by local prompts on the server.
 
 ## Chat Mode (REPL)
 
-Drop into an interactive session with slash commands for everything:
+Drop into an interactive session with slash commands:
 
 ```bash
 ask --chat
@@ -194,12 +192,14 @@ ask --chat
 **Available commands:**
 
 - `/help` – show this list
-- `/status` – what model/settings are active
+- `/status` – show the active model and settings
 - `/model <name>` – switch models on the fly
-- `/reason <level>` – adjust reasoning (HIGH/MED/LOW/MIN)
+- `/reason <level>` – adjust reasoning (`HIGH`, `MED`, `LOW`, `MIN`)
 - `/stream on|off` – toggle streaming output
-- `/agent on|off` – enable/disable tool calling
-- `/yolo on|off` – auto-approve tools
+- `/agent on|off` – enable or disable tool calling
+- `/yolo on|off` – toggle auto-approval in agent mode
+- `/cache on|off` – toggle explicit Gemini context caching
+- `/cache-ttl <dur>` – set explicit cache TTL
 - `/pwd` – print working directory
 - `/cd <path>` – change directory for tool commands
 - `/history [n]` – show last n messages
@@ -209,7 +209,7 @@ ask --chat
 
 ## Memory (Vector Store)
 
-Store facts locally and let the AI access them across chats. Useful for storing coding patterns, project context, or anything you want the agent to remember.
+Store facts locally and let the AI access them across chats. Useful for coding patterns, project context, or anything you want the agent to remember.
 
 **Access:**
 
@@ -220,66 +220,62 @@ Store facts locally and let the AI access them across chats. Useful for storing 
 
 - `l` / `list` – show all
 - `d <n>` / `del <n>` – delete entry n
-- `da` / `delall` – nuke everything
+- `da` / `delall` – delete everything
 - `q` / `quit` – exit manager
 
 ### How It Works
 
-**Storage:** Chromem persistent DB in `~/db`. Each memory gets a stable hash-based ID.
+**Storage:** Chromem persistent DB in `~/db`.
 
-**Management:** Explicit (for now). Memories don't auto-inject into every prompt. You manage them via CLI or the agent tools. Automatic extraction/saving is disabled by design—keep it simple.
+**IDs:** Each memory uses a stable hash-based ID.
 
-**Architecture:**
+**Management:** Explicit only. Memories do not auto-inject into every prompt; you manage them via CLI or agent tools.
 
-- Memories live in a local vector DB under `~/db`
-- Each entry has a stable `id` (content hash) and `content`
-- Retrieval code exists but isn't wired into agent prompts yet
-- Automatic per-turn saving is commented out (can be enabled if needed)
-
-**Status:** Memory is read/write explicit only. No automatic context injection yet. Call memory tools in the agent to use them.
+**Status:** Memory is read/write explicit only. There is no automatic context injection yet.
 
 ## Agent Tools
 
-Enable with `--agent`. The AI can call these tools automatically (with approval, unless `--yolo`):
+Enable with `--agent`. The AI can call these tools automatically, with approval unless `--yolo` is set.
 
-**`run_shell_command`** – Execute bash
+**`run_shell_command`** – Execute shell commands
 
-- Runs in your selected directory
-- Returns stdout, stderr, exit code, timing
-- **Approval required** (unless `--yolo`)
+- Runs in the selected directory
+- Returns stdout, stderr, exit code, and timing
+- **Approval required** unless `--yolo`
 
 **`read_file`** – Read file contents
 
-- Supports `start_line` / `end_line` for partial reads
-- No approval needed (read-only)
+- Supports `start_line` / `end_line`
+- No approval needed
 
 **`write_file`** – Edit files
 
 - Exact string replacement (`old_str` → `new_str`)
-- Shows diff preview before confirming
-- **Approval required** (unless `--yolo`)
+- Shows a diff preview before confirming
+- **Approval required** unless `--yolo`
 
-**`clipboard`** – Read/write system clipboard
+**`clipboard`** – Read or write the system clipboard
 
 - Read: no approval
-- Write: **approval required** (unless `--yolo`)
+- Write: **approval required** unless `--yolo`
+- Requires a graphical session and the `wl-clipboard` tools on Linux
 
 **`lists`** – Manage todos/lists
 
 - Actions: `create_list`, `delete_list`, `get_lists`, `add_item`, `update_item`, `delete_item`, `get_items`
-- Deletions need approval (unless `--yolo`)
+- Deletions need approval unless `--yolo`
 
 **`http_request`** – Make HTTP calls
 
 - Verbs: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`
 - GET: no approval
-- Write ops (POST/PUT/PATCH/DELETE): **approval required** (unless `--yolo`)
+- Write ops: **approval required** unless `--yolo`
 
 **`mail`** – Manage AgentMail inbox threads and messages
 
 - Actions: `get_threads`, `get_thread`, `send_email`, `reply_to_message`, `forward_message`, `delete_thread`
-- Requires `AGENT_MAIL_API_KEY` and `INBOX_NAME` environment variables
-- Send/reply/forward/delete: **approval required** (unless `--yolo`)
+- Requires `AGENT_MAIL_API_KEY` and `INBOX_NAME`
+- Send/reply/forward/delete: **approval required** unless `--yolo`
 
 **`memory_view`** – List stored memories
 
@@ -289,24 +285,23 @@ Enable with `--agent`. The AI can call these tools automatically (with approval,
 
 - No approval needed
 
-**`memory_update`** – Update existing memory
+**`memory_update`** – Update an existing memory
 
 - No approval needed
 
-**`memory_delete`** – Delete memory entry
+**`memory_delete`** – Delete a memory entry
 
 - No approval needed
 
-**`text_to_speech_file`** – Generate voice notes (MP3 audio)
+**`text_to_speech_file`** – Generate voice notes as MP3 files
 
-- Converts plain text into an MP3file using ElevenLabs
-- Output can be sent over Telegram with `send_document_over_telegram`
+- Converts plain text into an MP3 using ElevenLabs
+- Output can be sent with `send_document_over_telegram`
 - Requires `ELEVEN_LABS_API_KEY`
 
 **`send_document_over_telegram`** – Send files over Telegram
 
-- Sends any file (documents, MP3s, voice notes, etc.) directly to Telegram
-- Works seamlessly with voice note generation for AI-to-user voice delivery
+- Sends documents, MP3s, voice notes, and similar files to Telegram
 
 **`send_image_over_telegram`** – Send images over Telegram
 
@@ -318,27 +313,34 @@ Run `ask` as a Telegram bot. Chat with the AI directly in Telegram with slash co
 
 **Setup:**
 
-1. Create a bot with BotFather on Telegram (get your token)
-2. Set env var: `export TELEGRAM_BOT_TOKEN="your_token_here"`
-3. Start the bot: `ask --background=true`
+1. Create a bot with BotFather on Telegram
+2. Set env vars:
+   ```bash
+   export TELEGRAM_BOT_TOKEN="your_token_here"
+   export GEMINI_API_KEY="your_gemini_key"
+   ```
+3. Start the bot:
+   ```bash
+   ask --background=true
+   ```
 
-**Shared Context:** The Telegram bot uses the same SQLite database and vector memory as the CLI, so your chat history and memories persist seamlessly across both interfaces. Switch between Telegram and terminal—context is always there.
+**Shared Context:** The Telegram bot uses the same SQLite database and vector memory as the CLI, so chat history and memories persist across both interfaces.
 
 **Available commands:**
 
 - `/start` – welcome message
 - `/help` or `/about` – show commands
 - `/model <name>` – switch AI model
-- `/reasoning <level>` – adjust reasoning (HIGH/MEDIUM/LOW/MINIMAL)
+- `/reasoning <level>` – adjust reasoning
 
 **Voice & File Features:**
 
-- **Send voice notes:** The agent can generate voice notes (MP3 audio) from text and send them back to you over Telegram using the `text_to_speech_file` and `send_document_over_telegram` tools.
-- **Receive voice notes:** You can send voice notes to the bot, and it will transcribe them into text and understand the content in responses.
-- **Send images and documents:** The agent can send images and document files directly to your Telegram chat with full support for multimodal content.
-- **Reply context:** When you reply to any message (text, image, voice note, or document), the full context of the replied-to message is properly passed to the agent, allowing it to understand and respond with proper context awareness.
+- **Send voice notes:** The agent can generate voice notes as MP3 files and send them back over Telegram using `text_to_speech_file` and `send_document_over_telegram`.
+- **Receive voice notes:** You can send voice notes to the bot, and it will transcribe them before responding.
+- **Send images and documents:** The agent can send images and document files directly to your Telegram chat.
+- **Reply context:** Replies to text, image, voice note, or document messages are passed to the agent with the replied-to content included.
 
-Just send regular messages, voice notes, images, or documents—they'll be processed by the AI and responses saved locally in SQLite. Perfect for keeping an AI assistant in your pocket that responds in voice, images, and files too.
+Regular messages, voice notes, images, and documents are all processed by the bot, and responses are saved locally in SQLite.
 
 ## Shell Completions
 
@@ -355,13 +357,12 @@ ask completion fish
 - **Chat history & lists (SQLite):** `~/.ask-go.db`
 - **Vector memory (chromem):** `~/db/`
 
-Everything stays on your machine.
+Chat history, lists, and memories are stored locally. Model requests still go to the configured provider.
 
 ## Important Notes
 
-- **`--yolo` is dangerous.** Auto-approves shell commands, file writes, and HTTP requests. Only use in controlled environments or when you fully trust the AI's behavior.
-- **Chat data is local.** Your conversations aren't sent anywhere except to the model provider (Gemini API).
-- **No telemetry.** This is just Go + SQLite + local vectors.
+- **`--yolo` is dangerous.** It auto-approves shell commands, file writes, HTTP requests, clipboard writes, mail sends, and similar risky actions. Use it only in controlled environments.
+- **Prompts are sent to external services.** Local state stays on your machine, but model requests and optional integrations may leave the machine depending on the features you use.
 
 ## License
 
