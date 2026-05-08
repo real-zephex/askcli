@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	maxHTTPResponseLength = 8000
+	maxHTTPResponseLength = 16000
 	maxHTTPRedirects      = 5
 	defaultHTTPTimeout    = 10
 )
