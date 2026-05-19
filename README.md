@@ -382,4 +382,3 @@ Chat history, lists, and memories are stored locally. Model requests still go to
 ## License
 
 MIT (see `LICENSE`)
-test
