@@ -266,6 +266,19 @@ Enable with `--agent`. The AI can call these tools automatically, with approval 
 - macOS: `pbcopy`/`pbpaste`
 - Windows: PowerShell `Get-Clipboard`/`Set-Clipboard`
 
+**`search_files`** – Find files by name pattern
+
+- Glob-style pattern matching (e.g., `*.go`, `**/*.md`)
+- Optional root directory and max results
+- No approval needed
+
+**`grep_files`** – Search file contents by regex
+
+- Regex pattern search across files
+- Optional root directory, include glob, and max results
+- Skips large and binary files
+- No approval needed
+
 **`lists`** – Manage todos/lists
 
 - Actions: `create_list`, `delete_list`, `get_lists`, `add_item`, `update_item`, `delete_item`, `get_items`
@@ -282,10 +295,6 @@ Enable with `--agent`. The AI can call these tools automatically, with approval 
 - Actions: `get_threads`, `get_thread`, `send_email`, `reply_to_message`, `forward_message`, `delete_thread`
 - Requires `AGENT_MAIL_API_KEY` and `INBOX_NAME`
 - Send/reply/forward/delete: **approval required** unless `--yolo`
-
-**`memory_view`** – List stored memories
-
-- No approval needed
 
 **`memory_add`** – Store a new memory
 
