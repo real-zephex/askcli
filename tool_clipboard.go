@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,21 @@ var (
 const (
 	maxClipboardOutputLength = 8000
 )
+
+type clipboardProviderKind int
+
+const (
+	clipboardProviderUnknown clipboardProviderKind = iota
+	clipboardProviderWayland
+	clipboardProviderX11
+	clipboardProviderMacOS
+	clipboardProviderWindows
+)
+
+type clipboardProvider struct {
+	kind    clipboardProviderKind
+	x11Tool string
+}
 
 type clipboardRequest struct {
 	Action  string
@@ -67,40 +83,87 @@ func parseClipboardRequest(args map[string]any) (clipboardRequest, error) {
 	}, nil
 }
 
-func detectClipboardTool() error {
-	// Check if we have a display server
-	display := os.Getenv("DISPLAY")
-	waylandDisplay := os.Getenv("WAYLAND_DISPLAY")
-	if display == "" && waylandDisplay == "" {
-		return errors.New("no display server detected ($DISPLAY and $WAYLAND_DISPLAY are not set). Clipboard operations require a graphical environment")
-	}
+func detectClipboardProvider() (clipboardProvider, error) {
+	switch runtime.GOOS {
+	case "windows":
+		return clipboardProvider{kind: clipboardProviderWindows}, nil
+	case "darwin":
+		if _, err := exec.LookPath("pbpaste"); err != nil {
+			return clipboardProvider{}, errors.New("pbpaste not found. Ensure the macOS clipboard utilities are available")
+		}
+		if _, err := exec.LookPath("pbcopy"); err != nil {
+			return clipboardProvider{}, errors.New("pbcopy not found. Ensure the macOS clipboard utilities are available")
+		}
+		return clipboardProvider{kind: clipboardProviderMacOS}, nil
+	case "linux":
+		waylandDisplay := os.Getenv("WAYLAND_DISPLAY")
+		if waylandDisplay != "" {
+			if _, err := exec.LookPath("wl-paste"); err != nil {
+				return clipboardProvider{}, errors.New("wl-paste not found. Install wl-clipboard to use the clipboard on Wayland")
+			}
+			if _, err := exec.LookPath("wl-copy"); err != nil {
+				return clipboardProvider{}, errors.New("wl-copy not found. Install wl-clipboard to use the clipboard on Wayland")
+			}
+			return clipboardProvider{kind: clipboardProviderWayland}, nil
+		}
 
-	// Check for wl-clipboard tools
-	if _, err := exec.LookPath("wl-paste"); err != nil {
-		return errors.New("wl-paste not found. Please install wl-clipboard (e.g., sudo dnf install wl-clipboard)")
-	}
-	if _, err := exec.LookPath("wl-copy"); err != nil {
-		return errors.New("wl-copy not found. Please install wl-clipboard (e.g., sudo dnf install wl-clipboard)")
-	}
+		display := os.Getenv("DISPLAY")
+		if display == "" {
+			return clipboardProvider{}, errors.New("no display server detected ($DISPLAY and $WAYLAND_DISPLAY are not set). Clipboard operations require a graphical environment")
+		}
 
-	return nil
+		if _, err := exec.LookPath("xclip"); err == nil {
+			return clipboardProvider{kind: clipboardProviderX11, x11Tool: "xclip"}, nil
+		}
+		if _, err := exec.LookPath("xsel"); err == nil {
+			return clipboardProvider{kind: clipboardProviderX11, x11Tool: "xsel"}, nil
+		}
+
+		return clipboardProvider{}, errors.New("xclip or xsel not found. Install one to use the clipboard on X11")
+	default:
+		return clipboardProvider{}, fmt.Errorf("unsupported OS: %s", runtime.GOOS)
+	}
 }
 
 func executeClipboard(req clipboardRequest) clipboardResult {
-	if err := detectClipboardTool(); err != nil {
+	provider, err := detectClipboardProvider()
+	if err != nil {
 		return clipboardResult{
 			Request:      req,
 			ExecutionErr: err.Error(),
 		}
 	}
 
-	if req.Action == "read" {
-		return executeClipboardRead(req)
+	switch provider.kind {
+	case clipboardProviderWayland:
+		if req.Action == "read" {
+			return executeWaylandClipboardRead(req)
+		}
+		return executeWaylandClipboardWrite(req)
+	case clipboardProviderX11:
+		if req.Action == "read" {
+			return executeX11ClipboardRead(req, provider.x11Tool)
+		}
+		return executeX11ClipboardWrite(req, provider.x11Tool)
+	case clipboardProviderMacOS:
+		if req.Action == "read" {
+			return executeMacOSClipboardRead(req)
+		}
+		return executeMacOSClipboardWrite(req)
+	case clipboardProviderWindows:
+		if req.Action == "read" {
+			return executeWindowsClipboardRead(req)
+		}
+		return executeWindowsClipboardWrite(req)
+	default:
+		return clipboardResult{
+			Request:      req,
+			ExecutionErr: "no clipboard provider available",
+		}
 	}
-	return executeClipboardWrite(req)
 }
 
-func executeClipboardRead(req clipboardRequest) clipboardResult {
+func executeWaylandClipboardRead(req clipboardRequest) clipboardResult {
 	cmd := exec.Command("wl-paste", "--no-newline")
 
 	var stdout bytes.Buffer
@@ -155,7 +218,7 @@ func executeClipboardRead(req clipboardRequest) clipboardResult {
 	}
 }
 
-func executeClipboardWrite(req clipboardRequest) clipboardResult {
+func executeWaylandClipboardWrite(req clipboardRequest) clipboardResult {
 	clipboardDaemonMutex.Lock()
 	defer clipboardDaemonMutex.Unlock()
 
@@ -198,6 +261,161 @@ func executeClipboardWrite(req clipboardRequest) clipboardResult {
 		Request:   req,
 		CharCount: len([]rune(req.Content)),
 	}
+}
+
+func executeX11ClipboardRead(req clipboardRequest, tool string) clipboardResult {
+	cmd := buildX11ReadCommand(tool)
+	stdout, stderr, err := runCommand(cmd, req)
+	if err != nil {
+		return clipboardResult{
+			Request:      req,
+			ExecutionErr: formatCommandError("failed to read clipboard", err, stderr),
+		}
+	}
+
+	return buildClipboardReadResult(req, stdout)
+}
+
+func executeX11ClipboardWrite(req clipboardRequest, tool string) clipboardResult {
+	cmd := buildX11WriteCommand(tool)
+	cmd.Stdin = strings.NewReader(req.Content)
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return clipboardResult{
+			Request:      req,
+			ExecutionErr: formatCommandError("failed to write clipboard", err, stderr.String()),
+		}
+	}
+
+	return clipboardResult{
+		Request:   req,
+		CharCount: len([]rune(req.Content)),
+	}
+}
+
+func executeMacOSClipboardRead(req clipboardRequest) clipboardResult {
+	cmd := exec.Command("pbpaste")
+	stdout, stderr, err := runCommand(cmd, req)
+	if err != nil {
+		return clipboardResult{
+			Request:      req,
+			ExecutionErr: formatCommandError("failed to read clipboard", err, stderr),
+		}
+	}
+
+	return buildClipboardReadResult(req, stdout)
+}
+
+func executeMacOSClipboardWrite(req clipboardRequest) clipboardResult {
+	cmd := exec.Command("pbcopy")
+	cmd.Stdin = strings.NewReader(req.Content)
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return clipboardResult{
+			Request:      req,
+			ExecutionErr: formatCommandError("failed to write clipboard", err, stderr.String()),
+		}
+	}
+
+	return clipboardResult{
+		Request:   req,
+		CharCount: len([]rune(req.Content)),
+	}
+}
+
+func executeWindowsClipboardRead(req clipboardRequest) clipboardResult {
+	cmd := exec.Command("powershell", "-NoProfile", "-Command", "Get-Clipboard -Raw")
+	stdout, stderr, err := runCommand(cmd, req)
+	if err != nil {
+		return clipboardResult{
+			Request:      req,
+			ExecutionErr: formatCommandError("failed to read clipboard", err, stderr),
+		}
+	}
+
+	return buildClipboardReadResult(req, stdout)
+}
+
+func executeWindowsClipboardWrite(req clipboardRequest) clipboardResult {
+	cmd := exec.Command("powershell", "-NoProfile", "-Command", "Set-Clipboard")
+	cmd.Stdin = strings.NewReader(req.Content)
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return clipboardResult{
+			Request:      req,
+			ExecutionErr: formatCommandError("failed to write clipboard", err, stderr.String()),
+		}
+	}
+
+	return clipboardResult{
+		Request:   req,
+		CharCount: len([]rune(req.Content)),
+	}
+}
+
+func buildClipboardReadResult(req clipboardRequest, output string) clipboardResult {
+	if output == "" {
+		return clipboardResult{
+			Request:   req,
+			Content:   "",
+			CharCount: 0,
+		}
+	}
+
+	truncated := false
+	content := output
+	if len(content) > maxClipboardOutputLength {
+		runes := []rune(content)
+		content = string(runes[:maxClipboardOutputLength])
+		truncated = true
+	}
+
+	return clipboardResult{
+		Request:   req,
+		Content:   content,
+		CharCount: len([]rune(output)),
+		Truncated: truncated,
+	}
+}
+
+func runCommand(cmd *exec.Cmd, req clipboardRequest) (string, string, error) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return "", stderr.String(), err
+	}
+
+	return stdout.String(), "", nil
+}
+
+func formatCommandError(prefix string, err error, stderr string) string {
+	if stderr != "" {
+		return fmt.Sprintf("%s: %v (%s)", prefix, err, stderr)
+	}
+	return fmt.Sprintf("%s: %v", prefix, err)
+}
+
+func buildX11ReadCommand(tool string) *exec.Cmd {
+	if tool == "xsel" {
+		return exec.Command("xsel", "-ob")
+	}
+	return exec.Command("xclip", "-o", "-selection", "clipboard")
+}
+
+func buildX11WriteCommand(tool string) *exec.Cmd {
+	if tool == "xsel" {
+		return exec.Command("xsel", "-ib")
+	}
+	return exec.Command("xclip", "-selection", "clipboard")
 }
 
 func (r clipboardResult) toToolResponse() map[string]any {

@@ -41,7 +41,11 @@ Some features also need extra setup:
 - `GROQ_API_KEY` for Telegram voice-note transcription
 - `AGENT_MAIL_API_KEY` and `INBOX_NAME` for the `mail` tool
 - `ELEVEN_LABS_API_KEY` for `text_to_speech_file`
-- `DISPLAY` or `WAYLAND_DISPLAY`, plus `wl-paste`/`wl-copy`, for clipboard features on Linux
+- Clipboard:
+  - Linux Wayland: `wl-paste`/`wl-copy`
+  - Linux X11: `xclip` or `xsel`
+  - macOS: `pbcopy`/`pbpaste`
+  - Windows: PowerShell `Get-Clipboard`/`Set-Clipboard`
 - `PORT` for server mode, defaulting to `3000`
 
 If you only use the local CLI, `GEMINI_API_KEY` is the only required variable.
@@ -258,7 +262,9 @@ Enable with `--agent`. The AI can call these tools automatically, with approval 
 
 - Read: no approval
 - Write: **approval required** unless `--yolo`
-- Requires a graphical session and the `wl-clipboard` tools on Linux
+- Linux: Wayland (`wl-clipboard`) or X11 (`xclip`/`xsel`) with a graphical session
+- macOS: `pbcopy`/`pbpaste`
+- Windows: PowerShell `Get-Clipboard`/`Set-Clipboard`
 
 **`lists`** – Manage todos/lists
 
