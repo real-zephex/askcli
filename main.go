@@ -254,8 +254,6 @@ func main() {
 	resolvedModel := resolveModels(*model)
 	resolvedReasoning := resolveReasoningLevel(*reasoning)
 
-	saveMessage(db, "user", query)
-
 	var res string
 	if *connect != "" {
 		apiKey := getServerAPIKey()
@@ -292,6 +290,7 @@ func main() {
 	}
 
 	// save conversation after successful response
+	saveMessage(db, "user", query)
 	saveMessage(db, "assistant", res)
 
 	// scheduleRememberTurn(query, res)

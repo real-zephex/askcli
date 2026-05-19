@@ -98,6 +98,7 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 	//INFO: 0 is TELEGRAM CHAT ID. This will not support TELEGRAM RELATED FUNCTIONS so we need to exclude them.
 	res := runAgentTurn(sCTX, sDB, sGeminiKey, req.Message, sModel, sReasoning, sCacheSettings, true, 0, nil)
 
+	//TODO Save user message and history to local database
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(AskResponse{Response: res})
 }

@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
-	"errors"
 	"log"
 	"strings"
 
@@ -52,67 +50,9 @@ func (stuff MultiModalMessage) ToGenAIImageContent() *genai.Content {
 // takes message from the db and converts them to gemini message struct
 func messageFromDB(m Message) GeminiMessage {
 	return GeminiMessage{
-		Role: normalizeMessageRole(m.Role),
+		Role: m.Role,
 		Text: m.Content,
 	}
-}
-
-func normalizeMessageRole(role string) string {
-	if role == "assistant" {
-		return string(genai.RoleModel)
-	}
-	if role == "model" {
-		return string(genai.RoleModel)
-	}
-	if role == "user" {
-		return string(genai.RoleUser)
-	}
-	return role
-}
-
-func decodeContentParts(raw string) ([]*genai.Part, error) {
-	var payload []map[string]any
-	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
-		return nil, err
-	}
-
-	parts := make([]*genai.Part, 0, len(payload))
-	for _, item := range payload {
-		if text, ok := item["text"]; ok {
-			if value, ok := text.(string); ok {
-				parts = append(parts, &genai.Part{Text: value})
-			}
-			continue
-		}
-		if rawCall, ok := item["function_call"]; ok {
-			if callMap, ok := rawCall.(map[string]any); ok {
-				name, _ := callMap["name"].(string)
-				args, _ := callMap["args"].(map[string]any)
-				id, _ := callMap["id"].(string)
-				parts = append(parts, &genai.Part{
-					FunctionCall: &genai.FunctionCall{Name: name, Args: args, ID: id},
-				})
-			}
-			continue
-		}
-		if rawResponse, ok := item["function_response"]; ok {
-			if responseMap, ok := rawResponse.(map[string]any); ok {
-				name, _ := responseMap["name"].(string)
-				response, _ := responseMap["response"].(map[string]any)
-				id, _ := responseMap["id"].(string)
-				parts = append(parts, &genai.Part{
-					FunctionResponse: &genai.FunctionResponse{Name: name, Response: response, ID: id},
-				})
-			}
-			continue
-		}
-	}
-
-	if len(parts) == 0 {
-		return nil, errors.New("no parts decoded")
-	}
-
-	return parts, nil
 }
 
 /*
@@ -128,20 +68,7 @@ func historyToGenAIContents(messages []Message, query string) []*genai.Content {
 
 	// DB rows are fetched newest first, but Gemini context should be oldest first.
 	for i := len(messages) - 1; i >= 0; i-- {
-		m := messages[i]
-		switch m.Role {
-		case "user", "assistant", "model":
-			if parts, err := decodeContentParts(m.Content); err == nil {
-				contents = append(contents, &genai.Content{
-					Role:  normalizeMessageRole(m.Role),
-					Parts: parts,
-				})
-			} else {
-				contents = append(contents, messageFromDB(m).ToGenAIContent())
-			}
-		default:
-			contents = append(contents, messageFromDB(m).ToGenAIContent())
-		}
+		contents = append(contents, messageFromDB(messages[i]).ToGenAIContent())
 	}
 
 	contents = append(contents, GeminiMessage{
@@ -239,25 +166,16 @@ You are Aethel — an agentic CLI assistant powered by Google's Gemini models. Y
 		 - Parameters: filepath (required)
 		 - Returns: status (boolean), execution_err (string, if any)
 
-13. **search_files** — Search for files by glob pattern.
-		 - Parameters: pattern (required), root (optional), max_results (optional)
-		 - Returns: list of matching files
-
-14. **grep_files** — Search file contents using a regex pattern.
-		 - Parameters: pattern (required), root (optional), include (optional), max_results (optional)
-		 - Returns: list of matches with file, line_number, content
-
 ## Memory System
 You have two storage layers:
 - **Conversation history** — the current session's chat context.
 - **Long-term memory** — a persistent store of facts about the user that survives across sessions.
 
 ### When to use memory
-- Relevant memories are injected automatically at the start of each turn. Read them before responding.
+- If a query seems personal or context-dependent, call memory_view first to check if relevant facts are already stored before responding.
 - After responding, assess whether the user said anything worth storing. If yes, call memory_add.
-- If a memory conflicts with what the user just said, call memory_update or memory_delete immediately.
-- Prefer memory_update over memory_add when modifying an existing fact to avoid duplicates.
-- Do not infer or guess new memories; only store facts the user stated directly.
+- If the user corrects something or contradicts a stored fact, call memory_update or memory_delete immediately.
+- Periodically audit memories for staleness — if you notice an entry is clearly outdated based on the current conversation, update or remove it without being asked.
 
 ### What to store
 - Stable preferences: tone, formatting, workflow, tooling
@@ -314,12 +232,11 @@ func logThoughts(parts []*genai.Part) {
 
 // the OG function, this is used when stream is set to off. implemented this function myself
 func run(ctx context.Context, db *sql.DB, key string, query string, model string, reasoning string, cacheSettings CacheSettings) string {
-	// by default last messages are sent as context
-	messages := getHistory(db, defaultHistoryLimit)
+	// by default last 20 messages are sent as context
+	messages := getHistory(db, 20)
 
 	client := newGeminiClient(ctx, key)
 	config := buildGenerationConfig(reasoning)
-	injectMemoriesIntoConfig(ctx, config, query)
 	applyExplicitCache(ctx, client, model, config, cacheSettings)
 	contents := historyToGenAIContents(messages, query)
 
@@ -355,11 +272,10 @@ func runStream(
 	onTextChunk func(string),
 	onComplete func(string),
 ) string {
-	messages := getHistory(db, defaultHistoryLimit)
+	messages := getHistory(db, 20)
 
 	client := newGeminiClient(ctx, key)
 	config := buildGenerationConfig(reasoning)
-	injectMemoriesIntoConfig(ctx, config, query)
 	applyExplicitCache(ctx, client, model, config, cacheSettings)
 	contents := historyToGenAIContents(messages, query)
 

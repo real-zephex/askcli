@@ -16,8 +16,6 @@ type Message struct {
 	CreateAt string
 }
 
-const defaultHistoryLimit = 40
-
 func initDB() *sql.DB {
 	home, _ := os.UserHomeDir()
 	dbPath := filepath.Join(home, ".ask-go.db")
@@ -57,19 +55,9 @@ func saveMessage(db *sql.DB, role string, content string) {
 	}
 }
 
-func saveMessageSafe(db *sql.DB, role string, content string) {
-	_, err := db.Exec(
-		"INSERT INTO messages (role, content) VALUES (?, ?)",
-		role, content,
-	)
-	if err != nil {
-		log.Printf("warning: failed to save message: %v", err)
-	}
-}
-
 func getHistory(db *sql.DB, limit int) []Message {
 	rows, err := db.Query(
-		"SELECT id, role, content, created_at FROM messages ORDER BY id DESC LIMIT ?",
+		"SELECT id, role, content, created_at FROM messages ORDER BY created_at DESC LIMIT ?",
 		limit,
 	)
 	if err != nil {

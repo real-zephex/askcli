@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -51,7 +50,7 @@ func buildAgentGenerationConfig(reasoning string) *genai.GenerateContentConfig {
 		"properties": map[string]any{
 			"memory_id": map[string]any{
 				"type":        "string",
-				"description": "The stable memory ID from memory storage.",
+				"description": "The stable memory ID returned by memory_view.",
 			},
 		},
 		"required": []string{"memory_id"},
@@ -139,48 +138,6 @@ func buildAgentGenerationConfig(reasoning string) *genai.GenerateContentConfig {
 			},
 		},
 		"required": []string{"action"},
-	}
-
-	searchFilesSchema := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"pattern": map[string]any{
-				"type":        "string",
-				"description": "Glob pattern for files to match (e.g., *.go or **/*.md).",
-			},
-			"root": map[string]any{
-				"type":        "string",
-				"description": "Optional root directory to search from. Defaults to current directory.",
-			},
-			"max_results": map[string]any{
-				"type":        "integer",
-				"description": "Optional limit for number of files to return. Defaults to 50, max 200.",
-			},
-		},
-		"required": []string{"pattern"},
-	}
-
-	grepFilesSchema := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"pattern": map[string]any{
-				"type":        "string",
-				"description": "Regex pattern to search for in file contents.",
-			},
-			"root": map[string]any{
-				"type":        "string",
-				"description": "Optional root directory to search from. Defaults to current directory.",
-			},
-			"include": map[string]any{
-				"type":        "string",
-				"description": "Optional glob filter for file names (e.g., *.go).",
-			},
-			"max_results": map[string]any{
-				"type":        "integer",
-				"description": "Optional limit for number of matches to return. Defaults to 50, max 200.",
-			},
-		},
-		"required": []string{"pattern"},
 	}
 
 	listsSchema := map[string]any{
@@ -323,6 +280,11 @@ func buildAgentGenerationConfig(reasoning string) *genai.GenerateContentConfig {
 				ParametersJsonSchema: shellCommandSchema,
 			},
 			{
+				Name:                 "memory_view",
+				Description:          "List all currently stored memories with their IDs.",
+				ParametersJsonSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+			},
+			{
 				Name:                 "memory_add",
 				Description:          "Add a new memory to long-term memory storage.",
 				ParametersJsonSchema: memoryContentSchema,
@@ -351,16 +313,6 @@ func buildAgentGenerationConfig(reasoning string) *genai.GenerateContentConfig {
 				Name:                 "clipboard",
 				Description:          "Read from or write to the system clipboard. Write operations require user approval unless --yolo is active.",
 				ParametersJsonSchema: clipboardSchema,
-			},
-			{
-				Name:                 "search_files",
-				Description:          "Search for files by glob pattern. Useful for discovering files in a codebase.",
-				ParametersJsonSchema: searchFilesSchema,
-			},
-			{
-				Name:                 "grep_files",
-				Description:          "Search file contents using a regex pattern and return matching lines.",
-				ParametersJsonSchema: grepFilesSchema,
 			},
 			{
 				Name:                 "lists",
@@ -399,7 +351,9 @@ func buildAgentGenerationConfig(reasoning string) *genai.GenerateContentConfig {
 }
 
 func runAgentTurn(ctx context.Context, db *sql.DB, key string, query string, model string, reasoning string, cacheSettings CacheSettings, autoApprove bool, telegramChatID int64, multiModalContents []*genai.Content) string {
-	messages := getHistory(db, defaultHistoryLimit)
+	messages := getHistory(db, 20)
+	// since we have crud tools for managing memories, model can interact with them directly and injecting memory into the prompt will only clutter it
+	//	queryWithMemory := injectMemoryContext(ctx, query)
 	contents := historyToGenAIContents(messages, query)
 	for _, multiModalContent := range multiModalContents {
 		if multiModalContent != nil && len(multiModalContent.Parts) > 0 {
@@ -409,7 +363,6 @@ func runAgentTurn(ctx context.Context, db *sql.DB, key string, query string, mod
 
 	client := newGeminiClient(ctx, key)
 	config := buildAgentGenerationConfig(reasoning)
-	injectMemoriesIntoConfig(ctx, config, query)
 	applyExplicitCache(ctx, client, model, config, cacheSettings)
 
 	for range maxAgentToolRounds {
@@ -451,78 +404,13 @@ func runAgentTurn(ctx context.Context, db *sql.DB, key string, query string, mod
 			})
 		}
 
-		if len(responses) > 0 {
-			responseContent := &genai.Content{
-				Role:  string(genai.RoleUser),
-				Parts: responses,
-			}
-			contents = append(contents, responseContent)
-			saveToolTurn(result, responseContent, db)
-		}
+		contents = append(contents, &genai.Content{
+			Role:  string(genai.RoleUser),
+			Parts: responses,
+		})
 	}
 
 	return "Agent stopped after too many tool iterations. Try a more specific instruction."
-}
-
-func saveToolTurn(result *genai.GenerateContentResponse, responseContent *genai.Content, db *sql.DB) {
-	if result == nil || responseContent == nil || db == nil {
-		return
-	}
-
-	if len(result.Candidates) > 0 && result.Candidates[0] != nil && result.Candidates[0].Content != nil {
-		modelContent := result.Candidates[0].Content
-		if payload, err := encodeContentParts(modelContent.Parts); err == nil {
-			saveMessageSafe(db, string(genai.RoleModel), payload)
-		}
-	}
-
-	if payload, err := encodeContentParts(responseContent.Parts); err == nil {
-		saveMessageSafe(db, string(genai.RoleUser), payload)
-	}
-}
-
-func encodeContentParts(parts []*genai.Part) (string, error) {
-	serialized := make([]map[string]any, 0, len(parts))
-	for _, part := range parts {
-		if part == nil {
-			continue
-		}
-		if part.Text != "" {
-			serialized = append(serialized, map[string]any{"text": part.Text})
-			continue
-		}
-		if part.FunctionCall != nil {
-			serialized = append(serialized, map[string]any{
-				"function_call": map[string]any{
-					"name": part.FunctionCall.Name,
-					"args": part.FunctionCall.Args,
-					"id":   part.FunctionCall.ID,
-				},
-			})
-			continue
-		}
-		if part.FunctionResponse != nil {
-			serialized = append(serialized, map[string]any{
-				"function_response": map[string]any{
-					"name":     part.FunctionResponse.Name,
-					"response": part.FunctionResponse.Response,
-					"id":       part.FunctionResponse.ID,
-				},
-			})
-			continue
-		}
-	}
-
-	if len(serialized) == 0 {
-		return "", errors.New("no parts to encode")
-	}
-
-	payload, err := json.Marshal(serialized)
-	if err != nil {
-		return "", err
-	}
-
-	return string(payload), nil
 }
 
 func handleAgentFunctionCall(call *genai.FunctionCall, autoApprove bool, db *sql.DB, telegramChatID int64) map[string]any {
@@ -553,6 +441,22 @@ func handleAgentFunctionCall(call *genai.FunctionCall, autoApprove bool, db *sql
 		res := executeShellCommand(req)
 		printToolResult(res)
 		return res.toToolResponse()
+	case "memory_view":
+		records, err := listStoredMemoryRecords()
+		if err != nil {
+			return map[string]any{"error": map[string]any{"message": err.Error()}}
+		}
+		items := make([]map[string]any, 0, len(records))
+		for _, record := range records {
+			items = append(items, map[string]any{
+				"id":      record.ID,
+				"content": record.Content,
+			})
+		}
+		return map[string]any{
+			"count":    len(items),
+			"memories": items,
+		}
 	case "memory_add":
 		content, err := requiredStringArg(call.Args, "content")
 		if err != nil {
@@ -697,26 +601,6 @@ func handleAgentFunctionCall(call *genai.FunctionCall, autoApprove bool, db *sql
 
 		res := executeClipboard(req)
 		printClipboardResult(res)
-		return res.toToolResponse()
-	case "search_files":
-		req, err := parseSearchFilesRequest(call.Args)
-		if err != nil {
-			return map[string]any{"error": map[string]any{"message": err.Error()}}
-		}
-
-		printSearchFilesCall(req)
-		res := executeSearchFiles(req)
-		printSearchFilesResult(res)
-		return res.toToolResponse()
-	case "grep_files":
-		req, err := parseGrepFilesRequest(call.Args)
-		if err != nil {
-			return map[string]any{"error": map[string]any{"message": err.Error()}}
-		}
-
-		printGrepFilesCall(req)
-		res := executeGrepFiles(req)
-		printGrepFilesResult(res)
 		return res.toToolResponse()
 	case "lists":
 		req, err := parseListsRequest(call.Args)

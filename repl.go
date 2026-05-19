@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -74,8 +73,6 @@ func startREPL(ctx context.Context, db *sql.DB, key string, model string, reason
 			continue
 		}
 
-		saveMessage(db, "user", input)
-
 		var res string
 		if state.agent {
 			printThinking()
@@ -108,6 +105,7 @@ func startREPL(ctx context.Context, db *sql.DB, key string, model string, reason
 			fmt.Println()
 		}
 
+		saveMessage(db, "user", input)
 		saveMessage(db, "assistant", res)
 
 		//		scheduleRememberTurn(input, res)
@@ -332,91 +330,11 @@ func printHistory(db *sql.DB, limit int) {
 	fmt.Printf("Last %d messages:\n", len(messages))
 	for i := len(messages) - 1; i >= 0; i-- {
 		m := messages[i]
-		preview := formatHistoryPreview(m)
-		fmt.Printf("  [%d] %-17s %s\n", m.ID, m.Role, preview)
-	}
-}
-
-func formatHistoryPreview(m Message) string {
-	role := strings.TrimSpace(strings.ToLower(m.Role))
-	if role == "function_call" {
-		if name, args, ok := decodeToolCallSummary(m.Content); ok {
-			if value, ok := args["command"]; ok {
-				return fmt.Sprintf("%s command=%s", name, truncatePreview(fmt.Sprint(value), 80))
-			}
-			if value, ok := args["path"]; ok {
-				return fmt.Sprintf("%s path=%s", name, truncatePreview(fmt.Sprint(value), 80))
-			}
-			return fmt.Sprintf("%s args=%d", name, len(args))
+		preview := strings.ReplaceAll(m.Content, "\n", " ")
+		preview = strings.TrimSpace(preview)
+		if len(preview) > 100 {
+			preview = preview[:100] + "..."
 		}
+		fmt.Printf("  [%d] %-9s %s\n", m.ID, m.Role, preview)
 	}
-
-	if role == "function_response" {
-		if name, kind, ok := decodeToolResponseSummary(m.Content); ok {
-			return fmt.Sprintf("%s %s", name, kind)
-		}
-	}
-
-	preview := strings.ReplaceAll(m.Content, "\n", " ")
-	preview = strings.TrimSpace(preview)
-	return truncatePreview(preview, 100)
-}
-
-func truncatePreview(value string, max int) string {
-	if len(value) <= max {
-		return value
-	}
-	return value[:max] + "..."
-}
-
-func decodeToolCallSummary(raw string) (string, map[string]any, bool) {
-	var payload []map[string]any
-	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
-		return "", nil, false
-	}
-
-	for _, item := range payload {
-		if rawCall, ok := item["function_call"]; ok {
-			if callMap, ok := rawCall.(map[string]any); ok {
-				name, _ := callMap["name"].(string)
-				args, _ := callMap["args"].(map[string]any)
-				if name == "" {
-					return "", nil, false
-				}
-				if args == nil {
-					args = map[string]any{}
-				}
-				return name, args, true
-			}
-		}
-	}
-
-	return "", nil, false
-}
-
-func decodeToolResponseSummary(raw string) (string, string, bool) {
-	var payload []map[string]any
-	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
-		return "", "", false
-	}
-
-	for _, item := range payload {
-		if rawResponse, ok := item["function_response"]; ok {
-			if responseMap, ok := rawResponse.(map[string]any); ok {
-				name, _ := responseMap["name"].(string)
-				if name == "" {
-					return "", "", false
-				}
-				if _, ok := responseMap["error"]; ok {
-					return name, "error", true
-				}
-				if _, ok := responseMap["response"]; ok {
-					return name, "output", true
-				}
-				return name, "output", true
-			}
-		}
-	}
-
-	return "", "", false
 }
