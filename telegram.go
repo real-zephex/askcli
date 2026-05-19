@@ -466,12 +466,12 @@ func botConfig(ctx context.Context, db *sql.DB) {
 			}
 		}
 
+		saveMessage(db, "user", receivedMessage)
 		res := runAgentTurn(ctx, db, geminiKey, receivedMessage, tgModel, tgReasoning, tgCacheSettings, true, id, multiModalContents)
 
 		sendMessage(res, message)
 
 		// saving the message and response to local sqlite database
-		saveMessage(db, "user", receivedMessage)
 		saveMessage(db, "assistant", res)
 	}
 }

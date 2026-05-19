@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/philippgille/chromem-go"
+	"google.golang.org/genai"
 )
 
 var memoryCollection *chromem.Collection
@@ -111,4 +112,34 @@ func injectMemoryContext(ctx context.Context, query string) string {
 	b.WriteString("\nUser query:\n")
 	b.WriteString(query)
 	return b.String()
+}
+
+func injectMemoriesIntoConfig(ctx context.Context, config *genai.GenerateContentConfig, query string) {
+	if config == nil || config.SystemInstruction == nil || len(config.SystemInstruction.Parts) == 0 {
+		return
+	}
+
+	memories, err := recallMemories(ctx, query, 5)
+	if err != nil || len(memories) == 0 {
+		return
+	}
+
+	var b strings.Builder
+	b.WriteString("\n\n## Relevant Memories (Injected)\n")
+	b.WriteString("These are stored facts about the user from previous sessions. Treat them as trusted context. Do not claim them as new user statements in this chat. If a memory conflicts with the current user message, ask for clarification or update the memory.\n")
+	for _, memory := range memories {
+		text := strings.TrimSpace(memory)
+		if text == "" {
+			continue
+		}
+		b.WriteString("- ")
+		b.WriteString(text)
+		b.WriteString("\n")
+	}
+
+	if b.Len() == 0 {
+		return
+	}
+
+	config.SystemInstruction.Parts[0].Text += b.String()
 }
