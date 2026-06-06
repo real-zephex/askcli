@@ -57,7 +57,7 @@ func saveMessage(db *sql.DB, role string, content string) {
 
 func getHistory(db *sql.DB, limit int) []Message {
 	rows, err := db.Query(
-		"SELECT id, role, content, created_at FROM messages ORDER BY created_at DESC LIMIT ?",
+		"SELECT id, role, content, created_at FROM messages ORDER BY id DESC LIMIT ?",
 		limit,
 	)
 	if err != nil {

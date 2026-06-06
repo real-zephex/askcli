@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"os"
 	"sync"
@@ -57,5 +56,5 @@ func renderToString(text string) string {
 }
 
 func render(text string) {
-	fmt.Print(renderToString(text))
+	uiPrint(renderToString(text))
 }

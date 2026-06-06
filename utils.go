@@ -28,6 +28,9 @@ func loadSystemPromptFromFile(path string) string {
 
 // function to ask user's approval to write to clipboard
 func askForClipboardApproval() bool {
+	if TUIApprovalHook != nil {
+		return TUIApprovalHook("Write to clipboard? [y/N]: ")
+	}
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		fmt.Print("Write to clipboard? [y/N]: ")
@@ -47,6 +50,9 @@ func askForClipboardApproval() bool {
 
 // check user's approval for editing file
 func askForEditApproval() bool {
+	if TUIApprovalHook != nil {
+		return TUIApprovalHook("Apply this edit? [y/N]: ")
+	}
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		fmt.Print("Apply this edit? [y/N]: ")
@@ -66,6 +72,9 @@ func askForEditApproval() bool {
 
 // check user's approval for running bash commands
 func askForCommandApproval() bool {
+	if TUIApprovalHook != nil {
+		return TUIApprovalHook("Approve command? [y/N]: ")
+	}
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		fmt.Print("Approve command? [y/N]: ")

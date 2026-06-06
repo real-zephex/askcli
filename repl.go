@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/term"
 )
 
 type replState struct {
@@ -28,6 +30,11 @@ func startREPL(ctx context.Context, db *sql.DB, key string, model string, reason
 		agent:     *agent,
 		yolo:      *yolo,
 		cache:     cacheSettings,
+	}
+
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		runTUI(ctx, db, key, "", "", state)
+		return
 	}
 
 	printREPLHeader(state.model, state.reasoning, state.stream, state.agent, state.yolo, state.cache.Enabled)
@@ -136,107 +143,107 @@ func handleSlashCommand(input string, db *sql.DB, state *replState) (handled boo
 		return true, false
 	case "/clear":
 		clearDatabase(db)
-		fmt.Println("Conversation history cleared.")
+		uiPrintln("Conversation history cleared.")
 		return true, false
 	case "/agent":
 		on, ok := parseOnOffArg(args)
 		if !ok {
-			fmt.Println("Usage: /agent on|off")
+			uiPrintln("Usage: /agent on|off")
 			return true, false
 		}
 		state.agent = on
-		fmt.Printf("Agent mode: %t\n", state.agent)
+		uiPrintf("Agent mode: %t\n", state.agent)
 		return true, false
 	case "/yolo":
 		on, ok := parseOnOffArg(args)
 		if !ok {
-			fmt.Println("Usage: /yolo on|off")
+			uiPrintln("Usage: /yolo on|off")
 			return true, false
 		}
 		state.yolo = on
-		fmt.Printf("YOLO mode: %t\n", state.yolo)
+		uiPrintf("YOLO mode: %t\n", state.yolo)
 		return true, false
 	case "/stream":
 		on, ok := parseOnOffArg(args)
 		if !ok {
-			fmt.Println("Usage: /stream on|off")
+			uiPrintln("Usage: /stream on|off")
 			return true, false
 		}
 		state.stream = on
-		fmt.Printf("Streaming: %t\n", state.stream)
+		uiPrintf("Streaming: %t\n", state.stream)
 		return true, false
 	case "/cache":
 		on, ok := parseOnOffArg(args)
 		if !ok {
-			fmt.Println("Usage: /cache on|off")
+			uiPrintln("Usage: /cache on|off")
 			return true, false
 		}
 		state.cache.Enabled = on
-		fmt.Printf("Explicit caching: %t\n", state.cache.Enabled)
+		uiPrintf("Explicit caching: %t\n", state.cache.Enabled)
 		return true, false
 	case "/cache-ttl":
 		if len(args) != 1 {
-			fmt.Println("Usage: /cache-ttl <duration>")
+			uiPrintln("Usage: /cache-ttl <duration>")
 			return true, false
 		}
 		d, err := time.ParseDuration(args[0])
 		if err != nil || d < 0 {
-			fmt.Println("Invalid duration. Examples: 30m, 2h, 10s")
+			uiPrintln("Invalid duration. Examples: 30m, 2h, 10s")
 			return true, false
 		}
 		state.cache.TTL = d
-		fmt.Printf("Explicit cache TTL: %s\n", state.cache.TTL)
+		uiPrintf("Explicit cache TTL: %s\n", state.cache.TTL)
 		return true, false
 	case "/model":
 		if len(args) == 0 {
-			fmt.Printf("Current model: %s\n", state.model)
-			fmt.Println("Aliases: free | cheap | exp")
+			uiPrintf("Current model: %s\n", state.model)
+			uiPrintln("Aliases: free | cheap | exp")
 			return true, false
 		}
 		state.model = resolveModels(args[0])
-		fmt.Printf("Model set to: %s\n", state.model)
+		uiPrintf("Model set to: %s\n", state.model)
 		return true, false
 	case "/reason":
 		if len(args) == 0 {
-			fmt.Printf("Current reasoning: %s\n", state.reasoning)
-			fmt.Println("Values: HIGH | MED | LOW | MIN")
+			uiPrintf("Current reasoning: %s\n", state.reasoning)
+			uiPrintln("Values: HIGH | MED | LOW | MIN")
 			return true, false
 		}
 		normalized, ok := normalizeReasonArg(args[0])
 		if !ok {
-			fmt.Println("Usage: /reason HIGH|MED|LOW|MIN")
+			uiPrintln("Usage: /reason HIGH|MED|LOW|MIN")
 			return true, false
 		}
 		state.reasoning = normalized
-		fmt.Printf("Reasoning set to: %s\n", state.reasoning)
+		uiPrintf("Reasoning set to: %s\n", state.reasoning)
 		return true, false
 	case "/pwd":
 		wd, err := os.Getwd()
 		if err != nil {
-			fmt.Printf("pwd error: %v\n", err)
+			uiPrintf("pwd error: %v\n", err)
 			return true, false
 		}
-		fmt.Println(wd)
+		uiPrintln(wd)
 		return true, false
 	case "/cd":
 		if len(args) == 0 {
-			fmt.Println("Usage: /cd <path>")
+			uiPrintln("Usage: /cd <path>")
 			return true, false
 		}
 		target := strings.Join(args, " ")
 		if err := os.Chdir(target); err != nil {
-			fmt.Printf("cd error: %v\n", err)
+			uiPrintf("cd error: %v\n", err)
 			return true, false
 		}
 		wd, _ := os.Getwd()
-		fmt.Printf("cwd: %s\n", wd)
+		uiPrintf("cwd: %s\n", wd)
 		return true, false
 	case "/history":
 		limit := 10
 		if len(args) > 0 {
 			n, err := strconv.Atoi(args[0])
 			if err != nil || n <= 0 {
-				fmt.Println("Usage: /history [positive_number]")
+				uiPrintln("Usage: /history [positive_number]")
 				return true, false
 			}
 			if n > 50 {
@@ -287,47 +294,47 @@ func normalizeReasonArg(value string) (string, bool) {
 }
 
 func printSlashHelp() {
-	fmt.Println("Slash commands:")
-	fmt.Println("  /help                Show this help")
-	fmt.Println("  /status              Show current session state")
-	fmt.Println("  /clear               Clear local conversation history")
-	fmt.Println("  /agent on|off        Toggle shell agent mode")
-	fmt.Println("  /yolo on|off         Toggle auto-approval in agent mode")
-	fmt.Println("  /stream on|off       Toggle streaming output")
-	fmt.Println("  /cache on|off        Toggle explicit context caching")
-	fmt.Println("  /cache-ttl <dur>     Set explicit cache TTL (e.g. 30m, 2h)")
-	fmt.Println("  /model [name|alias]  Get/set model (free|cheap|exp or full model name)")
-	fmt.Println("  /reason [level]      Get/set reasoning (HIGH|MED|LOW|MIN)")
-	fmt.Println("  /pwd                 Print current working directory")
-	fmt.Println("  /cd <path>           Change current working directory")
-	fmt.Println("  /history [n]         Show last n saved messages (default 10, max 50)")
-	fmt.Println("  /memories            Open interactive memory manager (list/delete)")
-	fmt.Println("  /exit                Exit chat mode")
+	uiPrintln("Slash commands:")
+	uiPrintln("  /help                Show this help")
+	uiPrintln("  /status              Show current session state")
+	uiPrintln("  /clear               Clear local conversation history")
+	uiPrintln("  /agent on|off        Toggle shell agent mode")
+	uiPrintln("  /yolo on|off         Toggle auto-approval in agent mode")
+	uiPrintln("  /stream on|off       Toggle streaming output")
+	uiPrintln("  /cache on|off        Toggle explicit context caching")
+	uiPrintln("  /cache-ttl <dur>     Set explicit cache TTL (e.g. 30m, 2h)")
+	uiPrintln("  /model [name|alias]  Get/set model (free|cheap|exp or full model name)")
+	uiPrintln("  /reason [level]      Get/set reasoning (HIGH|MED|LOW|MIN)")
+	uiPrintln("  /pwd                 Print current working directory")
+	uiPrintln("  /cd <path>           Change current working directory")
+	uiPrintln("  /history [n]         Show last n saved messages (default 10, max 50)")
+	uiPrintln("  /memories            Open interactive memory manager (list/delete)")
+	uiPrintln("  /exit                Exit chat mode")
 }
 
 func printStatus(state *replState) {
 	wd, _ := os.Getwd()
-	fmt.Println("Session status:")
-	fmt.Printf("  model:     %s\n", state.model)
-	fmt.Printf("  reasoning: %s\n", state.reasoning)
-	fmt.Printf("  stream:    %t\n", state.stream)
-	fmt.Printf("  agent:     %t\n", state.agent)
-	fmt.Printf("  yolo:      %t\n", state.yolo)
-	fmt.Printf("  cache:     %t\n", state.cache.Enabled)
+	uiPrintln("Session status:")
+	uiPrintf("  model:     %s\n", state.model)
+	uiPrintf("  reasoning: %s\n", state.reasoning)
+	uiPrintf("  stream:    %t\n", state.stream)
+	uiPrintf("  agent:     %t\n", state.agent)
+	uiPrintf("  yolo:      %t\n", state.yolo)
+	uiPrintf("  cache:     %t\n", state.cache.Enabled)
 	if state.cache.TTL > 0 {
-		fmt.Printf("  cache ttl: %s\n", state.cache.TTL)
+		uiPrintf("  cache ttl: %s\n", state.cache.TTL)
 	}
-	fmt.Printf("  cwd:       %s\n", wd)
+	uiPrintf("  cwd:       %s\n", wd)
 }
 
 func printHistory(db *sql.DB, limit int) {
 	messages := getHistory(db, limit)
 	if len(messages) == 0 {
-		fmt.Println("No history found.")
+		uiPrintln("No history found.")
 		return
 	}
 
-	fmt.Printf("Last %d messages:\n", len(messages))
+	uiPrintf("Last %d messages:\n", len(messages))
 	for i := len(messages) - 1; i >= 0; i-- {
 		m := messages[i]
 		preview := strings.ReplaceAll(m.Content, "\n", " ")
@@ -335,6 +342,6 @@ func printHistory(db *sql.DB, limit int) {
 		if len(preview) > 100 {
 			preview = preview[:100] + "..."
 		}
-		fmt.Printf("  [%d] %-9s %s\n", m.ID, m.Role, preview)
+		uiPrintf("  [%d] %-9s %s\n", m.ID, m.Role, preview)
 	}
 }

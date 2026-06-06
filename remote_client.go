@@ -12,6 +12,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"golang.org/x/term"
 )
 
 type askRequestPayload struct {
@@ -108,6 +110,11 @@ func startREPLRemote(ctx context.Context, db *sql.DB, server string, apiKey stri
 		agent:     *agent,
 		yolo:      *yolo,
 		cache:     cacheSettings,
+	}
+
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		runTUI(ctx, db, "", server, apiKey, state)
+		return
 	}
 
 	printREPLHeader(state.model, state.reasoning, state.stream, state.agent, state.yolo, state.cache.Enabled)

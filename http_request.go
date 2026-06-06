@@ -251,50 +251,53 @@ func (res httpRequestResult) toToolResponse() map[string]any {
 }
 
 func printHTTPRequestCall(req httpRequestRequest) {
-	fmt.Printf("\n🌐 HTTP Request\n")
-	fmt.Printf("   Method: %s\n", req.Method)
-	fmt.Printf("   URL: %s\n", req.URL)
+	uiPrintf("\n🌐 HTTP Request\n")
+	uiPrintf("   Method: %s\n", req.Method)
+	uiPrintf("   URL: %s\n", req.URL)
 	if len(req.Headers) > 0 {
-		fmt.Printf("   Headers:\n")
+		uiPrintf("   Headers:\n")
 		for key, value := range req.Headers {
-			fmt.Printf("     %s: %s\n", key, value)
+			uiPrintf("     %s: %s\n", key, value)
 		}
 	}
 	if req.Body != "" {
-		fmt.Printf("   Body: %s\n", truncateForDisplay(req.Body, 200))
+		uiPrintf("   Body: %s\n", truncateForDisplay(req.Body, 200))
 	}
 	if req.Reason != "" {
-		fmt.Printf("   Reason: %s\n", req.Reason)
+		uiPrintf("   Reason: %s\n", req.Reason)
 	}
 }
 
 func askForHTTPRequestApproval() bool {
-	fmt.Print("   Send request? [y/N]: ")
+	if TUIApprovalHook != nil {
+		return TUIApprovalHook("   Send request? [y/N]: ")
+	}
+	uiPrint("   Send request? [y/N]: ")
 	return askYesNo()
 }
 
 func printHTTPRequestDenied() {
-	fmt.Println("   ❌ Request denied by user")
+	uiPrintln("   ❌ Request denied by user")
 }
 
 func printHTTPRequestResult(res httpRequestResult) {
 	if res.ExecutionErr != "" {
-		fmt.Printf("   ❌ Error: %s\n", res.ExecutionErr)
+		uiPrintf("   ❌ Error: %s\n", res.ExecutionErr)
 		return
 	}
 
-	fmt.Printf("   ✓ Status: %s\n", res.StatusText)
+	uiPrintf("   ✓ Status: %s\n", res.StatusText)
 	if len(res.Headers) > 0 {
-		fmt.Printf("   Response Headers:\n")
+		uiPrintf("   Response Headers:\n")
 		for key, value := range res.Headers {
-			fmt.Printf("     %s: %s\n", key, value)
+			uiPrintf("     %s: %s\n", key, value)
 		}
 	}
 	if res.Body != "" {
-		fmt.Printf("   Body: %s\n", truncateForDisplay(res.Body, 500))
+		uiPrintf("   Body: %s\n", truncateForDisplay(res.Body, 500))
 	}
 	if res.BodyTruncated {
-		fmt.Printf("   ⚠️  Response truncated to %d characters\n", maxHTTPResponseLength)
+		uiPrintf("   ⚠️  Response truncated to %d characters\n", maxHTTPResponseLength)
 	}
 }
 

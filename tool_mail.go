@@ -566,6 +566,9 @@ func mailActionNeedsApproval(action string) bool {
 }
 
 func askForMailApproval() bool {
+	if TUIApprovalHook != nil {
+		return TUIApprovalHook("Proceed with mail action? [y/N]: ")
+	}
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		fmt.Print("Proceed with mail action? [y/N]: ")

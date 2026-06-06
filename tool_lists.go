@@ -531,10 +531,13 @@ func initListsTables(db *sql.DB) error {
 // UI functions for user prompts
 
 func printDeleteListPrompt(listName string, itemCount int) {
-	fmt.Printf("\n🗑️  Delete list '%s' and all its %d item(s)? [y/N]: ", listName, itemCount)
+	uiPrintf("\n🗑️  Delete list '%s' and all its %d item(s)? [y/N]: ", listName, itemCount)
 }
 
 func askForDeleteListApproval() bool {
+	if TUIApprovalHook != nil {
+		return TUIApprovalHook("🗑️  Delete list? [y/N]: ")
+	}
 	return askYesNo()
 }
 

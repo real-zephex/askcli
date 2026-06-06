@@ -143,6 +143,16 @@ func checkForEnv() (string, bool) {
 }
 
 func main() {
+	// If "chat" is passed as a subcommand, set the chat flag and filter it out of os.Args
+	// to allow Go's flag package to parse flags that follow it.
+	for i := 1; i < len(os.Args); i++ {
+		if os.Args[i] == "chat" {
+			*chat = true
+			os.Args = append(os.Args[:i], os.Args[i+1:]...)
+			break
+		}
+	}
+
 	flag.Parse()
 	ctx := context.Background()
 	args := flag.Args()

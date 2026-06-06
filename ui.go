@@ -9,6 +9,38 @@ import (
 )
 
 var (
+	TUIPrintHook          func(string)
+	TUIStreamHook         func(string)
+	TUIStreamCompleteHook func(string)
+	TUIThinkingHook       func(bool, string)
+	TUIApprovalHook       func(string) bool
+)
+
+func uiPrint(args ...any) {
+	if TUIPrintHook != nil {
+		TUIPrintHook(fmt.Sprint(args...))
+	} else {
+		fmt.Print(args...)
+	}
+}
+
+func uiPrintln(args ...any) {
+	if TUIPrintHook != nil {
+		TUIPrintHook(fmt.Sprintln(args...))
+	} else {
+		fmt.Println(args...)
+	}
+}
+
+func uiPrintf(format string, args ...any) {
+	if TUIPrintHook != nil {
+		TUIPrintHook(fmt.Sprintf(format, args...))
+	} else {
+		fmt.Printf(format, args...)
+	}
+}
+
+var (
 	headerStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("212")).
@@ -34,9 +66,9 @@ var (
 var thinkingActive bool
 
 func printREPLHeader(model string, reasoning string, stream bool, agent bool, yolo bool, cacheEnabled bool) {
-	fmt.Println(headerStyle.Render("ask • interactive mode"))
-	fmt.Println(subtleStyle.Render("commands: /help for slash commands"))
-	fmt.Println(subtleStyle.Render(
+	uiPrintln(headerStyle.Render("ask • interactive mode"))
+	uiPrintln(subtleStyle.Render("commands: /help for slash commands"))
+	uiPrintln(subtleStyle.Render(
 		"model: " + model +
 			" • reasoning: " + reasoning +
 			" • stream: " + fmt.Sprintf("%t", stream) +
@@ -44,7 +76,7 @@ func printREPLHeader(model string, reasoning string, stream bool, agent bool, yo
 			" • yolo: " + fmt.Sprintf("%t", yolo) +
 			" • cache: " + fmt.Sprintf("%t", cacheEnabled),
 	))
-	fmt.Println()
+	uiPrintln("")
 }
 
 func chatPrompt() string {
@@ -65,7 +97,11 @@ func ensureThinkingCleared() {
 
 func printThinking() {
 	thinkingActive = true
-	fmt.Print(statusStyle.Render("thinking..."))
+	if TUIThinkingHook != nil {
+		TUIThinkingHook(true, "thinking...")
+	} else {
+		fmt.Print(statusStyle.Render("thinking..."))
+	}
 }
 
 func clearThinking() {
@@ -73,15 +109,19 @@ func clearThinking() {
 		return
 	}
 	thinkingActive = false
-	fmt.Print("\r" + strings.Repeat(" ", 24) + "\r")
+	if TUIThinkingHook != nil {
+		TUIThinkingHook(false, "")
+	} else {
+		fmt.Print("\r" + strings.Repeat(" ", 24) + "\r")
+	}
 }
 
 func printStreamingLabel() {
-	fmt.Println(streamStyle.Render("↳ streaming rendered markdown:"))
+	uiPrintln(streamStyle.Render("↳ streaming rendered markdown:"))
 }
 
 func printFinalRenderLabel() {
-	fmt.Println(finalStyle.Render("↳ rendered markdown:"))
+	uiPrintln(finalStyle.Render("↳ rendered markdown:"))
 }
 
 func printToolCall(req shellCommandRequest) {
@@ -91,11 +131,11 @@ func printToolCall(req shellCommandRequest) {
 	}
 	lines = append(lines, subtleStyle.Render("cwd: "+req.WorkingDirectory+" • timeout: "+fmt.Sprintf("%ds", req.TimeoutSeconds)))
 	lines = append(lines, "$ "+req.Command)
-	fmt.Println(renderToolBlock(lines))
+	uiPrintln(renderToolBlock(lines))
 }
 
 func printToolDenied() {
-	fmt.Println(renderToolBlock([]string{warnStyle.Render("command denied by user")}))
+	uiPrintln(renderToolBlock([]string{warnStyle.Render("command denied by user")}))
 }
 
 func printToolResult(result shellCommandResult) {
@@ -106,7 +146,7 @@ func printToolResult(result shellCommandResult) {
 	line := subtleStyle.Render(
 		fmt.Sprintf("tool result: %s • exit=%d • duration=%dms", status, result.ExitCode, result.Duration.Milliseconds()),
 	)
-	fmt.Println(renderToolBlock([]string{line}))
+	uiPrintln(renderToolBlock([]string{line}))
 }
 
 func printMailCall(req mailRequest) {
@@ -137,7 +177,7 @@ func printMailCall(req mailRequest) {
 			lines = append(lines, preview)
 		}
 	}
-	fmt.Println(renderToolBlock(lines))
+	uiPrintln(renderToolBlock(lines))
 }
 
 func truncateMailPreview(value string, maxChars int, maxLines int) string {
@@ -157,13 +197,13 @@ func truncateMailPreview(value string, maxChars int, maxLines int) string {
 }
 
 func printMailDenied() {
-	fmt.Println(renderToolBlock([]string{warnStyle.Render("mail action denied by user")}))
+	uiPrintln(renderToolBlock([]string{warnStyle.Render("mail action denied by user")}))
 }
 
 func printMailResult(res mailResult) {
 	if res.ExecutionErr != "" {
 		line := subtleStyle.Render(fmt.Sprintf("tool result: error • %s", res.ExecutionErr))
-		fmt.Println(renderToolBlock([]string{line}))
+		uiPrintln(renderToolBlock([]string{line}))
 		return
 	}
 	if res.UserDenied {
@@ -172,22 +212,22 @@ func printMailResult(res mailResult) {
 	}
 	if res.Request.Action == "get_threads" {
 		line := subtleStyle.Render(fmt.Sprintf("tool result: ok • %d thread(s)", len(res.Threads)))
-		fmt.Println(renderToolBlock([]string{line}))
+		uiPrintln(renderToolBlock([]string{line}))
 		return
 	}
 	if res.Request.Action == "get_thread" {
 		line := subtleStyle.Render("tool result: ok • thread fetched")
-		fmt.Println(renderToolBlock([]string{line}))
+		uiPrintln(renderToolBlock([]string{line}))
 		return
 	}
 	if res.Request.Action == "delete_thread" {
 		line := subtleStyle.Render("tool result: ok • thread deleted")
-		fmt.Println(renderToolBlock([]string{line}))
+		uiPrintln(renderToolBlock([]string{line}))
 		return
 	}
 	if res.MessageResult != nil {
 		line := subtleStyle.Render(fmt.Sprintf("tool result: ok • message_id=%s thread_id=%s", res.MessageResult.MessageID, res.MessageResult.ThreadID))
-		fmt.Println(renderToolBlock([]string{line}))
+		uiPrintln(renderToolBlock([]string{line}))
 	}
 }
 
@@ -198,13 +238,13 @@ func printTextToSpeechCall(req textToSpeechRequest) {
 	if preview != "" {
 		lines = append(lines, preview)
 	}
-	fmt.Println(renderToolBlock(lines))
+	uiPrintln(renderToolBlock(lines))
 }
 
 func printTextToSpeechResult(res textToSpeechResult) {
 	if res.ExecutionErr != "" {
 		line := subtleStyle.Render(fmt.Sprintf("tool result: error • %s", res.ExecutionErr))
-		fmt.Println(renderToolBlock([]string{line}))
+		uiPrintln(renderToolBlock([]string{line}))
 		return
 	}
 
@@ -213,27 +253,27 @@ func printTextToSpeechResult(res textToSpeechResult) {
 		subtleStyle.Render("filepath: " + res.FilePath),
 		subtleStyle.Render("next: send_document_over_telegram"),
 	}
-	fmt.Println(renderToolBlock(lines))
+	uiPrintln(renderToolBlock(lines))
 }
 
 func printMemorySaved(stored int) {
-	fmt.Println(memoryOKStyle.Render(fmt.Sprintf("🧠 memory: saved %d item(s)", stored)))
+	uiPrintln(memoryOKStyle.Render(fmt.Sprintf("🧠 memory: saved %d item(s)", stored)))
 }
 
 func printMemoryNoop() {
-	fmt.Println(memoryStyle.Render("🧠 memory: no new items saved"))
+	uiPrintln(memoryStyle.Render("🧠 memory: no new items saved"))
 }
 
 func printMemoryWarning(err error) {
-	fmt.Println(warnStyle.Render(fmt.Sprintf("🧠 memory warning: %v", err)))
+	uiPrintln(warnStyle.Render(fmt.Sprintf("🧠 memory warning: %v", err)))
 }
 
 func printMemoryWait(reason string, pending int64) {
-	fmt.Println(memoryStyle.Render(fmt.Sprintf("%s. Please wait, finishing %d memory task(s)...", reason, pending)))
+	uiPrintln(memoryStyle.Render(fmt.Sprintf("%s. Please wait, finishing %d memory task(s)...", reason, pending)))
 }
 
 func printMemorySyncComplete() {
-	fmt.Println(memoryOKStyle.Render("🧠 memory sync complete."))
+	uiPrintln(memoryOKStyle.Render("🧠 memory sync complete."))
 }
 
 type markdownStreamPreview struct {
@@ -267,7 +307,7 @@ func (p *markdownStreamPreview) onComplete(finalText string) {
 	p.renderCurrent()
 
 	if !strings.HasSuffix(finalText, "\n") {
-		fmt.Println()
+		uiPrintln("")
 	}
 }
 
@@ -310,20 +350,20 @@ func printWriteFileCall(req writeFileRequest) {
 	if diff != "" {
 		lines = append(lines, diff)
 	}
-	fmt.Println(renderToolBlock(lines))
+	uiPrintln(renderToolBlock(lines))
 }
 
 func printEditDenied() {
-	fmt.Println(renderToolBlock([]string{warnStyle.Render("edit denied by user")}))
+	uiPrintln(renderToolBlock([]string{warnStyle.Render("edit denied by user")}))
 }
 
 func printWriteFileResult(result writeFileResult) {
 	if result.ExecutionErr != "" {
 		line := subtleStyle.Render(fmt.Sprintf("tool result: error • %s", result.ExecutionErr))
-		fmt.Println(renderToolBlock([]string{line}))
+		uiPrintln(renderToolBlock([]string{line}))
 	} else {
 		line := subtleStyle.Render(fmt.Sprintf("tool result: ok • modified %s", result.ModifiedLines))
-		fmt.Println(renderToolBlock([]string{line}))
+		uiPrintln(renderToolBlock([]string{line}))
 	}
 }
 
@@ -383,31 +423,31 @@ func printClipboardWriteCall(req clipboardRequest) {
 	if strings.TrimSpace(preview) != "" {
 		lines = append(lines, preview)
 	}
-	fmt.Println(renderToolBlock(lines))
+	uiPrintln(renderToolBlock(lines))
 }
 
 func printClipboardDenied() {
-	fmt.Println(renderToolBlock([]string{warnStyle.Render("clipboard write denied by user")}))
+	uiPrintln(renderToolBlock([]string{warnStyle.Render("clipboard write denied by user")}))
 }
 
 func printClipboardResult(result clipboardResult) {
 	if result.ExecutionErr != "" {
 		line := subtleStyle.Render(fmt.Sprintf("tool result: error • %s", result.ExecutionErr))
-		fmt.Println(renderToolBlock([]string{line}))
+		uiPrintln(renderToolBlock([]string{line}))
 	} else if result.Request.Action == "read" {
 		if result.Content == "" {
 			line := subtleStyle.Render("tool result: ok • clipboard is empty")
-			fmt.Println(renderToolBlock([]string{line}))
+			uiPrintln(renderToolBlock([]string{line}))
 		} else {
 			truncMsg := ""
 			if result.Truncated {
 				truncMsg = " (truncated)"
 			}
 			line := subtleStyle.Render(fmt.Sprintf("tool result: ok • read %d chars%s", result.CharCount, truncMsg))
-			fmt.Println(renderToolBlock([]string{line}))
+			uiPrintln(renderToolBlock([]string{line}))
 		}
 	} else {
 		line := subtleStyle.Render(fmt.Sprintf("tool result: ok • wrote %d chars", result.CharCount))
-		fmt.Println(renderToolBlock([]string{line}))
+		uiPrintln(renderToolBlock([]string{line}))
 	}
 }
