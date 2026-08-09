@@ -9,24 +9,9 @@ import (
 	"google.golang.org/genai"
 )
 
-type GeminiMessage struct {
-	Role string
-	Text string
-}
-
 type MultiModalMessage struct {
 	Mimetype string
 	File     string
-}
-
-// takes those gemini message and converts them to gemini api compatible format
-func (m GeminiMessage) ToGenAIContent() *genai.Content {
-	return &genai.Content{
-		Role: m.Role,
-		Parts: []*genai.Part{
-			{Text: m.Text},
-		},
-	}
 }
 
 func (stuff MultiModalMessage) ToGenAIImageContent() *genai.Content {
@@ -45,38 +30,6 @@ func (stuff MultiModalMessage) ToGenAIImageContent() *genai.Content {
 			},
 		},
 	}
-}
-
-// takes message from the db and converts them to gemini message struct
-func messageFromDB(m Message) GeminiMessage {
-	return GeminiMessage{
-		Role: m.Role,
-		Text: m.Content,
-	}
-}
-
-/*
-This function takes in the messages array from the database and user query and returns gemini api compatible format
-- It first creates an array of size one more than the messages array
-- It then appends the messages to the this new array after converting them to gemini api compatible syntax
-- at last it appends the user query to the array and we are done
-
-make(type, currentLength, fullLength)
-*/
-func historyToGenAIContents(messages []Message, query string) []*genai.Content {
-	contents := make([]*genai.Content, 0, len(messages)+1)
-
-	// DB rows are fetched newest first, but Gemini context should be oldest first.
-	for i := len(messages) - 1; i >= 0; i-- {
-		contents = append(contents, messageFromDB(messages[i]).ToGenAIContent())
-	}
-
-	contents = append(contents, GeminiMessage{
-		Role: "user",
-		Text: query,
-	}.ToGenAIContent())
-
-	return contents
 }
 
 func newGeminiClient(ctx context.Context, key string) *genai.Client {
@@ -264,14 +217,20 @@ func logThoughts(parts []*genai.Part) {
 }
 
 // the OG function, this is used when stream is set to off. implemented this function myself
-func run(ctx context.Context, db *sql.DB, key string, query string, model string, reasoning string, cacheSettings CacheSettings) string {
-	// by default last 20 messages are sent as context
-	messages := getHistory(db, 20)
+func run(ctx context.Context, db *sql.DB, channel string, key string, query string, model string, reasoning string, cacheSettings CacheSettings) (string, []*genai.Content) {
+	contents := loadConversation(db, channel)
+	if contents == nil {
+		contents = make([]*genai.Content, 0, 100)
+	}
+
+	contents = append(contents, &genai.Content{
+		Role:  genai.RoleUser,
+		Parts: []*genai.Part{{Text: query}},
+	})
 
 	client := newGeminiClient(ctx, key)
 	config := buildGenerationConfig(reasoning)
 	applyExplicitCache(ctx, client, model, config, cacheSettings)
-	contents := historyToGenAIContents(messages, query)
 
 	result, err := client.Models.GenerateContent(ctx, model, contents, config)
 	if err != nil {
@@ -290,13 +249,21 @@ func run(ctx context.Context, db *sql.DB, key string, query string, model string
 		logThoughts(result.Candidates[0].Content.Parts)
 	}
 
-	return result.Text()
+	text := result.Text()
+
+	contents = append(contents, &genai.Content{
+		Role:  genai.RoleModel,
+		Parts: []*genai.Part{{Text: text}},
+	})
+
+	return text, contents
 }
 
 // AI overlords hired some workers to make this function. I get how it works!
 func runStream(
 	ctx context.Context,
 	db *sql.DB,
+	channel string,
 	key string,
 	query string,
 	model string,
@@ -304,13 +271,20 @@ func runStream(
 	cacheSettings CacheSettings,
 	onTextChunk func(string),
 	onComplete func(string),
-) string {
-	messages := getHistory(db, 20)
+) (string, []*genai.Content) {
+	contents := loadConversation(db, channel)
+	if contents == nil {
+		contents = make([]*genai.Content, 0, 100)
+	}
+
+	contents = append(contents, &genai.Content{
+		Role:  genai.RoleUser,
+		Parts: []*genai.Part{{Text: query}},
+	})
 
 	client := newGeminiClient(ctx, key)
 	config := buildGenerationConfig(reasoning)
 	applyExplicitCache(ctx, client, model, config, cacheSettings)
-	contents := historyToGenAIContents(messages, query)
 
 	var answer strings.Builder
 	var thoughts strings.Builder
@@ -372,5 +346,10 @@ func runStream(
 		render("# Thoughts\n" + thoughts.String() + "---")
 	}
 
-	return finalAnswer
+	contents = append(contents, &genai.Content{
+		Role:  genai.RoleModel,
+		Parts: []*genai.Part{{Text: finalAnswer}},
+	})
+
+	return finalAnswer, contents
 }

@@ -185,7 +185,7 @@ func main() {
 	memoryCollection = collection
 
 	if *clr {
-		clearDatabase(db)
+		clearAllConversations(db)
 		fmt.Println("Removed all the rows from the database. Start afresh!")
 		os.Exit(0)
 	}
@@ -264,25 +264,24 @@ func main() {
 	resolvedModel := resolveModels(*model)
 	resolvedReasoning := resolveReasoningLevel(*reasoning)
 
-	var res string
 	if *connect != "" {
 		apiKey := getServerAPIKey()
 		printThinking()
-		remoteRes, err := postToRemoteAsk(ctx, *connect, apiKey, query, resolvedModel, resolvedReasoning)
+		res, err := postToRemoteAsk(ctx, *connect, apiKey, query, resolvedModel, resolvedReasoning)
 		clearThinking()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "remote request error: %v\n", err)
 			os.Exit(1)
 		}
-		res = remoteRes
 		printFinalRenderLabel()
 		render(res)
 	} else if *stream {
 		printStreamingLabel()
 		preview := newMarkdownStreamPreview()
-		res = runStream(
+		_, contents := runStream(
 			ctx,
 			db,
+			"default",
 			e,
 			query,
 			resolvedModel,
@@ -291,17 +290,15 @@ func main() {
 			preview.onChunk,
 			preview.onComplete,
 		)
+		saveConversation(db, "default", contents)
 	} else {
 		printThinking()
-		res = run(ctx, db, e, query, resolvedModel, resolvedReasoning, cacheSettings)
+		res, contents := run(ctx, db, "default", e, query, resolvedModel, resolvedReasoning, cacheSettings)
 		clearThinking()
 		printFinalRenderLabel()
 		render(res)
+		saveConversation(db, "default", contents)
 	}
-
-	// save conversation after successful response
-	saveMessage(db, "user", query)
-	saveMessage(db, "assistant", res)
 
 	// scheduleRememberTurn(query, res)
 	// waitForRememberTasks("Finishing memory sync before exit")

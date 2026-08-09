@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"golang.org/x/term"
+	"google.golang.org/genai"
 )
 
 type askRequestPayload struct {
@@ -159,7 +160,18 @@ func startREPLRemote(ctx context.Context, db *sql.DB, server string, apiKey stri
 		render(res)
 		fmt.Println()
 
-		saveMessage(db, "user", input)
-		saveMessage(db, "assistant", res)
+		contents := loadConversation(db, "default")
+		if contents == nil {
+			contents = make([]*genai.Content, 0, 100)
+		}
+		contents = append(contents, &genai.Content{
+			Role:  genai.RoleUser,
+			Parts: []*genai.Part{{Text: input}},
+		})
+		contents = append(contents, &genai.Content{
+			Role:  genai.RoleModel,
+			Parts: []*genai.Part{{Text: res}},
+		})
+		saveConversation(db, "default", contents)
 	}
 }

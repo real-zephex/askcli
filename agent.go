@@ -350,11 +350,16 @@ func buildAgentGenerationConfig(reasoning string) *genai.GenerateContentConfig {
 	return cfg
 }
 
-func runAgentTurn(ctx context.Context, db *sql.DB, key string, query string, model string, reasoning string, cacheSettings CacheSettings, autoApprove bool, telegramChatID int64, multiModalContents []*genai.Content) string {
-	messages := getHistory(db, 20)
-	// since we have crud tools for managing memories, model can interact with them directly and injecting memory into the prompt will only clutter it
-	//	queryWithMemory := injectMemoryContext(ctx, query)
-	contents := historyToGenAIContents(messages, query)
+func runAgentTurn(ctx context.Context, db *sql.DB, channel string, key string, query string, model string, reasoning string, cacheSettings CacheSettings, autoApprove bool, telegramChatID int64, multiModalContents []*genai.Content) (string, []*genai.Content) {
+	contents := loadConversation(db, channel)
+	if contents == nil {
+		contents = make([]*genai.Content, 0, 100)
+	}
+
+	contents = append(contents, &genai.Content{
+		Role:  genai.RoleUser,
+		Parts: []*genai.Part{{Text: query}},
+	})
 	for _, multiModalContent := range multiModalContents {
 		if multiModalContent != nil && len(multiModalContent.Parts) > 0 {
 			contents = append(contents, multiModalContent)
@@ -375,7 +380,7 @@ func runAgentTurn(ctx context.Context, db *sql.DB, key string, query string, mod
 				result, err = client.Models.GenerateContent(ctx, model, contents, config)
 			}
 			if err != nil {
-				return fmt.Sprintf("Agent request failed: %v", err)
+				return fmt.Sprintf("Agent request failed: %v", err), contents
 			}
 		}
 
@@ -385,7 +390,11 @@ func runAgentTurn(ctx context.Context, db *sql.DB, key string, query string, mod
 
 		functionCalls := result.FunctionCalls()
 		if len(functionCalls) == 0 {
-			return strings.TrimSpace(result.Text())
+			// Append the final model response to contents before returning
+			if len(result.Candidates) > 0 && result.Candidates[0] != nil && result.Candidates[0].Content != nil {
+				contents = append(contents, result.Candidates[0].Content)
+			}
+			return strings.TrimSpace(result.Text()), contents
 		}
 
 		if len(result.Candidates) > 0 && result.Candidates[0] != nil && result.Candidates[0].Content != nil {
@@ -410,7 +419,7 @@ func runAgentTurn(ctx context.Context, db *sql.DB, key string, query string, mod
 		})
 	}
 
-	return "Agent stopped after too many tool iterations. Try a more specific instruction."
+	return "Agent stopped after too many tool iterations. Try a more specific instruction.", contents
 }
 
 func handleAgentFunctionCall(call *genai.FunctionCall, autoApprove bool, db *sql.DB, telegramChatID int64) map[string]any {

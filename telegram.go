@@ -466,12 +466,11 @@ func botConfig(ctx context.Context, db *sql.DB) {
 			}
 		}
 
-		res := runAgentTurn(ctx, db, geminiKey, receivedMessage, tgModel, tgReasoning, tgCacheSettings, true, id, multiModalContents)
+		channel := telegramChannel(id)
+		res, contents := runAgentTurn(ctx, db, channel, geminiKey, receivedMessage, tgModel, tgReasoning, tgCacheSettings, true, id, multiModalContents)
 
 		sendMessage(res, message)
 
-		// saving the message and response to local sqlite database
-		saveMessage(db, "user", receivedMessage)
-		saveMessage(db, "assistant", res)
+		saveConversation(db, channel, contents)
 	}
 }

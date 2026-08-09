@@ -2,19 +2,15 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 
 	_ "modernc.org/sqlite"
+	"google.golang.org/genai"
 )
-
-type Message struct {
-	ID       int
-	Role     string
-	Content  string
-	CreateAt string
-}
 
 func initDB() *sql.DB {
 	home, _ := os.UserHomeDir()
@@ -26,11 +22,10 @@ func initDB() *sql.DB {
 	}
 
 	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS messages (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			role TEXT NOT NULL,
-			content TEXT NOT NULL,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		CREATE TABLE IF NOT EXISTS conversations (
+			channel TEXT PRIMARY KEY,
+			params_json TEXT NOT NULL,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)
 	`)
 	if err != nil {
@@ -45,40 +40,56 @@ func initDB() *sql.DB {
 	return db
 }
 
-func saveMessage(db *sql.DB, role string, content string) {
-	_, err := db.Exec(
-		"INSERT INTO messages (role, content) VALUES (?, ?)",
-		role, content,
+// saveConversation upserts the entire conversation array as JSON for a channel.
+func saveConversation(db *sql.DB, channel string, contents []*genai.Content) {
+	data, err := json.Marshal(contents)
+	if err != nil {
+		log.Fatalf("Failed to marshal conversation: %v", err)
+	}
+	_, err = db.Exec(
+		`INSERT INTO conversations (channel, params_json) VALUES (?, ?)
+		 ON CONFLICT(channel) DO UPDATE SET params_json = ?, updated_at = CURRENT_TIMESTAMP`,
+		channel, string(data), string(data),
 	)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Failed to save conversation: %v", err)
 	}
 }
 
-func getHistory(db *sql.DB, limit int) []Message {
-	rows, err := db.Query(
-		"SELECT id, role, content, created_at FROM messages ORDER BY id DESC LIMIT ?",
-		limit,
-	)
+// loadConversation loads the full conversation array from JSON for a channel.
+func loadConversation(db *sql.DB, channel string) []*genai.Content {
+	var data string
+	err := db.QueryRow("SELECT params_json FROM conversations WHERE channel = ?", channel).Scan(&data)
 	if err != nil {
-		log.Fatal(err)
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		log.Fatalf("Failed to load conversation: %v", err)
 	}
-	defer rows.Close()
-
-	var messages []Message
-	for rows.Next() {
-		var m Message
-		rows.Scan(&m.ID, &m.Role, &m.Content, &m.CreateAt)
-		messages = append(messages, m)
+	var contents []*genai.Content
+	if err := json.Unmarshal([]byte(data), &contents); err != nil {
+		log.Fatalf("Failed to unmarshal conversation: %v", err)
 	}
-	return messages
+	return contents
 }
 
-func clearDatabase(db *sql.DB) {
-	_, err := db.Exec(
-		"DELETE FROM messages",
-	)
+// telegramChannel returns the channel key for a Telegram chat.
+func telegramChannel(chatID int64) string {
+	return fmt.Sprintf("telegram:%d", chatID)
+}
+
+// clearConversation deletes one channel's conversation.
+func clearConversation(db *sql.DB, channel string) {
+	_, err := db.Exec("DELETE FROM conversations WHERE channel = ?", channel)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Failed to clear conversation: %v", err)
+	}
+}
+
+// clearAllConversations deletes all conversations across all channels.
+func clearAllConversations(db *sql.DB) {
+	_, err := db.Exec("DELETE FROM conversations")
+	if err != nil {
+		log.Fatalf("Failed to clear conversations: %v", err)
 	}
 }

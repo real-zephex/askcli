@@ -121,13 +121,15 @@ func (m *tuiModel) runQuery(query string) {
 		} else {
 			if m.state.agent {
 				TUIThinkingHook(true, "thinking...")
-				res = runAgentTurn(ctx, m.db, m.key, query, m.state.model, m.state.reasoning, m.state.cache, m.state.yolo, 0, nil)
+				res, contents := runAgentTurn(ctx, m.db, "default", m.key, query, m.state.model, m.state.reasoning, m.state.cache, m.state.yolo, 0, nil)
 				TUIThinkingHook(false, "")
 				TUIPrintHook(renderToStringWithWidth(res, m.viewport.Width) + "\n")
+				saveConversation(m.db, "default", contents)
 			} else if m.state.stream {
-				res = runStream(
+				_, contents := runStream(
 					ctx,
 					m.db,
+					"default",
 					m.key,
 					query,
 					m.state.model,
@@ -136,16 +138,15 @@ func (m *tuiModel) runQuery(query string) {
 					TUIStreamHook,
 					TUIStreamCompleteHook,
 				)
+				saveConversation(m.db, "default", contents)
 			} else {
 				TUIThinkingHook(true, "thinking...")
-				res = run(ctx, m.db, m.key, query, m.state.model, m.state.reasoning, m.state.cache)
+				res, contents := run(ctx, m.db, "default", m.key, query, m.state.model, m.state.reasoning, m.state.cache)
 				TUIThinkingHook(false, "")
 				TUIPrintHook(renderToStringWithWidth(res, m.viewport.Width) + "\n")
+				saveConversation(m.db, "default", contents)
 			}
 		}
-
-		saveMessage(m.db, "user", query)
-		saveMessage(m.db, "assistant", res)
 
 		if activeTUIProgram != nil {
 			activeTUIProgram.Send(tuiQueryFinishedMsg{})
@@ -415,15 +416,26 @@ func runTUI(ctx context.Context, db *sql.DB, key string, server string, apiKey s
 
 
 	// Pre-load last 20 messages from history database
-	messages := getHistory(db, 20)
-	for i := len(messages) - 1; i >= 0; i-- {
-		msg := messages[i]
+	contents := loadConversation(db, "default")
+	start := 0
+	if len(contents) > 20 {
+		start = len(contents) - 20
+	}
+	for i := start; i < len(contents); i++ {
+		msg := contents[i]
 		if msg.Role == "user" {
 			wrapLimit := vp.Width - 4
 			if wrapLimit < 20 {
 				wrapLimit = 20
 			}
-			wrappedInput := wrapText(msg.Content, wrapLimit)
+			var text string
+			for _, part := range msg.Parts {
+				if part != nil && part.Text != "" {
+					text = part.Text
+					break
+				}
+			}
+			wrappedInput := wrapText(text, wrapLimit)
 			lines := strings.Split(wrappedInput, "\n")
 			var formattedUserMsg strings.Builder
 			formattedUserMsg.WriteString("\n")
@@ -433,7 +445,14 @@ func runTUI(ctx context.Context, db *sql.DB, key string, server string, apiKey s
 			formattedUserMsg.WriteString("\n")
 			m.messages = append(m.messages, formattedUserMsg.String())
 		} else {
-			m.messages = append(m.messages, renderToStringWithWidth(msg.Content, vp.Width)+"\n")
+			var text string
+			for _, part := range msg.Parts {
+				if part != nil && part.Text != "" {
+					text = part.Text
+					break
+				}
+			}
+			m.messages = append(m.messages, renderToStringWithWidth(text, vp.Width)+"\n")
 		}
 	}
 

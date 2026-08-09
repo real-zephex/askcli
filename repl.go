@@ -80,20 +80,21 @@ func startREPL(ctx context.Context, db *sql.DB, key string, model string, reason
 			continue
 		}
 
-		var res string
 		if state.agent {
 			printThinking()
-			res = runAgentTurn(ctx, db, key, input, state.model, state.reasoning, state.cache, state.yolo, 0, nil)
+			res, contents := runAgentTurn(ctx, db, "default", key, input, state.model, state.reasoning, state.cache, state.yolo, 0, nil)
 			clearThinking()
 			printFinalRenderLabel()
 			render(res)
 			fmt.Println()
+			saveConversation(db, "default", contents)
 		} else if state.stream {
 			printStreamingLabel()
 			preview := newMarkdownStreamPreview()
-			res = runStream(
+			_, contents := runStream(
 				ctx,
 				db,
+				"default",
 				key,
 				input,
 				state.model,
@@ -102,18 +103,17 @@ func startREPL(ctx context.Context, db *sql.DB, key string, model string, reason
 				preview.onChunk,
 				preview.onComplete,
 			)
+			saveConversation(db, "default", contents)
 		} else {
 			printThinking()
-			res = run(ctx, db, key, input, state.model, state.reasoning, state.cache)
+			res, contents := run(ctx, db, "default", key, input, state.model, state.reasoning, state.cache)
 			clearThinking()
 
 			printFinalRenderLabel()
 			render(res)
 			fmt.Println()
+			saveConversation(db, "default", contents)
 		}
-
-		saveMessage(db, "user", input)
-		saveMessage(db, "assistant", res)
 
 		//		scheduleRememberTurn(input, res)
 	}
@@ -142,7 +142,7 @@ func handleSlashCommand(input string, db *sql.DB, state *replState) (handled boo
 		printStatus(state)
 		return true, false
 	case "/clear":
-		clearDatabase(db)
+		clearConversation(db, "default")
 		uiPrintln("Conversation history cleared.")
 		return true, false
 	case "/agent":
@@ -328,20 +328,31 @@ func printStatus(state *replState) {
 }
 
 func printHistory(db *sql.DB, limit int) {
-	messages := getHistory(db, limit)
-	if len(messages) == 0 {
+	contents := loadConversation(db, "default")
+	if len(contents) == 0 {
 		uiPrintln("No history found.")
 		return
 	}
 
-	uiPrintf("Last %d messages:\n", len(messages))
-	for i := len(messages) - 1; i >= 0; i-- {
-		m := messages[i]
-		preview := strings.ReplaceAll(m.Content, "\n", " ")
+	start := 0
+	if len(contents) > limit {
+		start = len(contents) - limit
+	}
+	uiPrintf("Last %d messages:\n", len(contents)-start)
+	for i := start; i < len(contents); i++ {
+		c := contents[i]
+		preview := ""
+		for _, part := range c.Parts {
+			if part != nil && part.Text != "" {
+				preview = part.Text
+				break
+			}
+		}
+		preview = strings.ReplaceAll(preview, "\n", " ")
 		preview = strings.TrimSpace(preview)
 		if len(preview) > 100 {
 			preview = preview[:100] + "..."
 		}
-		uiPrintf("  [%d] %-9s %s\n", m.ID, m.Role, preview)
+		uiPrintf("  [%d] %-9s %s\n", i, c.Role, preview)
 	}
 }
